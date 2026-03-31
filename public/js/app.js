@@ -19,9 +19,8 @@ async function login() {
   const data = await res.json();
   if (data.success) {
     closeModal();
-    document.getElementById('btn-login-nav').style.display = 'none';
-    document.getElementById('btn-logout').style.display = 'inline';
-    document.getElementById('nav-dashboard').style.display = 'inline';
+    showLoggedIn(data.username);
+    await loadProfile();
   } else {
     document.getElementById('login-error').textContent = data.error;
   }
@@ -39,12 +38,19 @@ async function register() {
   const data = await res.json();
   if (data.success) {
     closeModal();
-    alert('สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ KnowBridge 🌉');
-    document.getElementById('btn-login-nav').style.display = 'none';
-    document.getElementById('btn-logout').style.display = 'inline';
+    showLoggedIn(username);
+    await loadProfile();
+    showProfile();
   } else {
     document.getElementById('reg-error').textContent = data.error;
   }
+}
+
+function showLoggedIn(username) {
+  document.getElementById('btn-login-nav').style.display = 'none';
+  document.getElementById('btn-logout').style.display = 'inline';
+  document.getElementById('nav-dashboard').style.display = 'inline';
+  document.getElementById('nav-profile').style.display = 'inline';
 }
 
 async function logout() {
@@ -52,6 +58,46 @@ async function logout() {
   location.reload();
 }
 
+// ===== Profile =====
+let currentProfile = null;
+
+async function loadProfile() {
+  const res = await fetch('/api/profile');
+  if (res.status === 401) return;
+  const data = await res.json();
+  currentProfile = data;
+  if (data.user) {
+    document.getElementById('profile-username').textContent = data.user.username;
+    document.getElementById('profile-email').textContent = data.user.email;
+    document.getElementById('profile-bio').value = data.user.bio || '';
+  }
+}
+
+function showProfile() {
+  document.getElementById('modal-profile').style.display = 'flex';
+}
+
+function closeProfile() {
+  document.getElementById('modal-profile').style.display = 'none';
+}
+
+async function saveProfile() {
+  const bio = document.getElementById('profile-bio').value;
+  const res = await fetch('/api/profile/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bio, teach_skills: [], learn_skills: [] })
+  });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById('profile-msg').textContent = '✅ บันทึกสำเร็จ!';
+    setTimeout(() => {
+      document.getElementById('profile-msg').textContent = '';
+    }, 2000);
+  }
+}
+
+// ===== Search =====
 async function searchSkills() {
   const skill = document.getElementById('search-input').value;
   const category = document.getElementById('category-filter').value;
@@ -71,7 +117,7 @@ async function searchSkills() {
       <h3>👤 ${user.username}</h3>
       <p><strong>สอน:</strong> ${user.skill_name}</p>
       <p style="margin-top:0.5rem">${user.bio || 'ยังไม่มีคำอธิบาย'}</p>
-      <button class="btn-primary" style="margin-top:1rem;width:100%" onclick="sendRequest(${user.id})">
+      <button class="btn-gold" style="margin-top:1rem;width:100%" onclick="sendRequest('${user.id}')">
         ขอแลกเปลี่ยน
       </button>
     </div>
@@ -79,8 +125,23 @@ async function searchSkills() {
 }
 
 async function sendRequest(receiverId) {
-  alert(`ส่งคำขอไปหาผู้ใช้เรียบร้อยแล้ว! 🎉`);
+  alert('ส่งคำขอไปหาผู้ใช้เรียบร้อยแล้ว! 🎉');
 }
 
-// โหลดผลค้นหาตอนเปิดหน้า
+// ===== ตรวจสอบ session ตอนโหลดหน้า =====
+async function checkSession() {
+  const res = await fetch('/api/profile');
+  if (res.ok) {
+    const data = await res.json();
+    if (data.user) {
+      showLoggedIn(data.user.username);
+      currentProfile = data;
+      document.getElementById('profile-username').textContent = data.user.username;
+      document.getElementById('profile-email').textContent = data.user.email;
+      document.getElementById('profile-bio').value = data.user.bio || '';
+    }
+  }
+}
+
+checkSession();
 searchSkills();

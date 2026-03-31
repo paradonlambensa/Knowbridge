@@ -1,150 +1,92 @@
-const Datastore = require('nedb-promises');
-const path = require('path');
+const { MongoClient, ObjectId } = require('mongodb');
+const bcrypt = require('bcryptjs');
+require('dotenv').config();
 
-const db = {
-  users: Datastore.create({ 
-    filename: path.join(__dirname, 'data', 'users.db'), 
-    autoload: true 
-  }),
-  skills: Datastore.create({ 
-    filename: path.join(__dirname, 'data', 'skills.db'), 
-    autoload: true 
-  }),
-  user_skills: Datastore.create({ 
-    filename: path.join(__dirname, 'data', 'user_skills.db'), 
-    autoload: true 
-  }),
-  exchange_requests: Datastore.create({ 
-    filename: path.join(__dirname, 'data', 'exchange_requests.db'), 
-    autoload: true 
-  }),
-  reviews: Datastore.create({ 
-    filename: path.join(__dirname, 'data', 'reviews.db'), 
-    autoload: true 
-  }),
-};
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri);
+const db = {};
 
-// เพิ่มทักษะตัวอย่าง
-const sampleSkills = [
-  // IT & Programming
-  ['Python Programming', 'IT'],
-  ['JavaScript', 'IT'],
-  ['Web Development', 'IT'],
-  ['React.js', 'IT'],
-  ['Node.js', 'IT'],
-  ['Java Programming', 'IT'],
-  ['C++ Programming', 'IT'],
-  ['PHP', 'IT'],
-  ['SQL & Database', 'IT'],
-  ['Excel & Spreadsheet', 'IT'],
-  ['Data Analysis', 'IT'],
-  ['Machine Learning', 'IT'],
-  ['Cybersecurity', 'IT'],
-  ['Networking', 'IT'],
-  ['Docker & DevOps', 'IT'],
-  ['Mobile App (Flutter)', 'IT'],
-  ['UI/UX Design', 'IT'],
-  ['Figma', 'IT'],
-  ['WordPress', 'IT'],
-  ['PowerPoint', 'IT'],
+async function connectDB() {
+  try {
+    await client.connect();
+    console.log('✅ Connected to MongoDB Atlas');
+    const database = client.db('knowbridge');
 
-  // Languages
-  ['English', 'Language'],
-  ['Japanese', 'Language'],
-  ['Chinese (Mandarin)', 'Language'],
-  ['Korean', 'Language'],
-  ['French', 'Language'],
-  ['German', 'Language'],
-  ['Spanish', 'Language'],
-  ['Thai Sign Language', 'Language'],
-  ['Arabic', 'Language'],
-  ['Malay', 'Language'],
+    db.users             = database.collection('users');
+    db.skills            = database.collection('skills');
+    db.user_skills       = database.collection('user_skills');
+    db.exchange_requests = database.collection('exchange_requests');
+    db.reviews           = database.collection('reviews');
 
-  // Art & Design
-  ['Drawing & Illustration', 'Art'],
-  ['Digital Art', 'Art'],
-  ['Watercolor Painting', 'Art'],
-  ['Photography', 'Art'],
-  ['Video Editing', 'Art'],
-  ['Graphic Design', 'Art'],
-  ['Calligraphy', 'Art'],
-  ['Pottery & Ceramics', 'Art'],
-  ['Fashion Design', 'Art'],
-  ['Comic & Manga Drawing', 'Art'],
-
-  // Music
-  ['Guitar', 'Music'],
-  ['Piano', 'Music'],
-  ['Ukulele', 'Music'],
-  ['Singing & Vocal', 'Music'],
-  ['Music Theory', 'Music'],
-  ['Drum', 'Music'],
-  ['Violin', 'Music'],
-  ['Music Production (DAW)', 'Music'],
-
-  // Other
-  ['Cooking & Baking', 'Other'],
-  ['Yoga & Meditation', 'Other'],
-  ['Public Speaking', 'Other'],
-  ['Creative Writing', 'Other'],
-  ['Chess', 'Other'],
-  ['Gardening', 'Other'],
-  ['Financial Planning', 'Other'],
-  ['Marketing & Branding', 'Other'],
-];
+    await seedSkills();
+    await seedUsers();
+    console.log('🚀 Database ready!');
+  } catch (err) {
+    console.error('❌ MongoDB Error:', err);
+  }
+}
 
 async function seedSkills() {
-  const existing = await db.skills.find({});
-  if (existing.length === 0) {
-    const skillObjects = sampleSkills.map(([name, category]) => ({ name, category }));
-    await db.skills.insert(skillObjects);
+  const count = await db.skills.countDocuments();
+  if (count === 0) {
+    const sampleSkills = [
+      { name: 'Python Programming', category: 'IT' },
+      { name: 'JavaScript', category: 'IT' },
+      { name: 'Web Development', category: 'IT' },
+      { name: 'React.js', category: 'IT' },
+      { name: 'Node.js', category: 'IT' },
+      { name: 'Java Programming', category: 'IT' },
+      { name: 'SQL & Database', category: 'IT' },
+      { name: 'UI/UX Design', category: 'IT' },
+      { name: 'Figma', category: 'IT' },
+      { name: 'English', category: 'Language' },
+      { name: 'Japanese', category: 'Language' },
+      { name: 'Chinese (Mandarin)', category: 'Language' },
+      { name: 'Korean', category: 'Language' },
+      { name: 'French', category: 'Language' },
+      { name: 'Drawing & Illustration', category: 'Art' },
+      { name: 'Digital Art', category: 'Art' },
+      { name: 'Photography', category: 'Art' },
+      { name: 'Video Editing', category: 'Art' },
+      { name: 'Graphic Design', category: 'Art' },
+      { name: 'Guitar', category: 'Music' },
+      { name: 'Piano', category: 'Music' },
+      { name: 'Singing & Vocal', category: 'Music' },
+      { name: 'Cooking & Baking', category: 'Other' },
+      { name: 'Public Speaking', category: 'Other' },
+      { name: 'Chess', category: 'Other' },
+    ];
+    await db.skills.insertMany(sampleSkills);
     console.log('✅ Skills seeded!');
   }
 }
 
-seedSkills();
-console.log('✅ Database ready!');
-module.exports = db;
-
 async function seedUsers() {
-  const existing = await db.users.find({});
-  if (existing.length === 0) {
-    const bcrypt = require('bcryptjs');
-
+  const count = await db.users.countDocuments();
+  if (count === 0) {
     const users = [
-      { username: 'Lxzywynn', email: 'ake@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'นักศึกษา IT ชอบเขียนโปรแกรม อยากฝึกภาษาอังกฤษ' },
-      { username: 'Opie', email: 'bee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'นักศึกษาอักษรศาสตร์ ภาษาอังกฤษเก่ง อยากเรียนเขียนโค้ด' },
-      { username: 'Chwwy', email: 'cee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'ชอบวาดรูปและดีไซน์ อยากเรียน Python วิเคราะห์ข้อมูล' },
-      { username: 'Vito', email: 'dee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'เล่นกีตาร์มา 5 ปี อยากเรียนภาษาญี่ปุ่น' },
-      { username: 'Peace', email: 'ee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'เรียนภาษาญี่ปุ่นมา 3 ปี อยากหัดถ่ายภาพ' },
+      { username: 'Lxzywinn', email: 'ake@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'นักศึกษา IT ชอบเขียนโปรแกรม' },
+      { username: 'Opie',     email: 'bee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'นักศึกษาอักษรศาสตร์ ภาษาอังกฤษเก่ง' },
+      { username: 'Chwwy',    email: 'cee@demo.com', password: bcrypt.hashSync('demo1234', 10), bio: 'ชอบวาดรูปและดีไซน์' },
     ];
+    const result = await db.users.insertMany(users);
+    const insertedIds = Object.values(result.insertedIds);
 
-    const insertedUsers = await db.users.insert(users);
-
-    // ดึง skills มาใส่ให้แต่ละ user
-    const allSkills = await db.skills.find({});
-    const find = (name) => allSkills.find(s => s.name === name)?._id;
+    const allSkills = await db.skills.find().toArray();
+    const findSkillId = (name) => allSkills.find(s => s.name === name)?._id;
 
     const userSkills = [
-      { user_id: insertedUsers[0]._id, skill_id: find('Python Programming'), type: 'teach' },
-      { user_id: insertedUsers[0]._id, skill_id: find('English'), type: 'learn' },
-
-      { user_id: insertedUsers[1]._id, skill_id: find('English'), type: 'teach' },
-      { user_id: insertedUsers[1]._id, skill_id: find('JavaScript'), type: 'learn' },
-
-      { user_id: insertedUsers[2]._id, skill_id: find('Drawing & Illustration'), type: 'teach' },
-      { user_id: insertedUsers[2]._id, skill_id: find('Python Programming'), type: 'learn' },
-
-      { user_id: insertedUsers[3]._id, skill_id: find('Guitar'), type: 'teach' },
-      { user_id: insertedUsers[3]._id, skill_id: find('Japanese'), type: 'learn' },
-
-      { user_id: insertedUsers[4]._id, skill_id: find('Japanese'), type: 'teach' },
-      { user_id: insertedUsers[4]._id, skill_id: find('Photography'), type: 'learn' },
+      { user_id: insertedIds[0], skill_id: findSkillId('Python Programming'), type: 'teach' },
+      { user_id: insertedIds[0], skill_id: findSkillId('English'),            type: 'learn' },
+      { user_id: insertedIds[1], skill_id: findSkillId('English'),            type: 'teach' },
+      { user_id: insertedIds[1], skill_id: findSkillId('JavaScript'),         type: 'learn' },
+      { user_id: insertedIds[2], skill_id: findSkillId('Drawing & Illustration'), type: 'teach' },
+      { user_id: insertedIds[2], skill_id: findSkillId('Python Programming'), type: 'learn' },
     ];
-
-    await db.user_skills.insert(userSkills);
+    await db.user_skills.insertMany(userSkills);
     console.log('✅ Demo users seeded!');
   }
 }
 
-seedUsers();
+connectDB();
+module.exports = { db, ObjectId };
