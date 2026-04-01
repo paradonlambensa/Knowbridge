@@ -17,6 +17,7 @@ async function connectDB() {
     db.user_skills       = database.collection('user_skills');
     db.exchange_requests = database.collection('exchange_requests');
     db.reviews           = database.collection('reviews');
+    db.messages          = database.collection('messages');
 
     await seedSkills();
     await seedUsers();

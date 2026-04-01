@@ -330,7 +330,7 @@ body {
 }
 .modal-brand { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 0.4rem; }
 .modal h2 { font-size: 1.5rem; font-weight: 800; color: var(--navy); margin-bottom: 1.25rem; }
-.modal input {
+.modal input:not(#chat-input) {
   width: 100%; padding: 0.85rem 1rem;
   border: 1.5px solid var(--border); border-radius: 8px;
   font-size: 0.95rem; margin-bottom: 0.75rem;
@@ -478,3 +478,21 @@ body {
   align-items: center;
   gap: 0.3rem;
 }
+
+/* ===== Chat Input Fix ===== */
+#chat-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: 'Sarabun', sans-serif;
+  outline: none;
+  color: #1E293B;
+  background: #fff;
+  transition: border 0.2s;
+}
+#chat-input:focus { border-color: var(--gold); }

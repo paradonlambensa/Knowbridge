@@ -21,6 +21,7 @@ async function login() {
     closeModal();
     showLoggedIn(data.username);
     await loadProfile();
+    searchSkills();
   } else {
     document.getElementById('login-error').textContent = data.error;
   }
@@ -30,6 +31,10 @@ async function register() {
   const username = document.getElementById('reg-username').value;
   const email = document.getElementById('reg-email').value;
   const password = document.getElementById('reg-password').value;
+  if (!username || !email || !password) {
+    document.getElementById('reg-error').textContent = 'กรุณากรอกข้อมูลให้ครบ';
+    return;
+  }
   const res = await fetch('/api/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -40,6 +45,7 @@ async function register() {
     closeModal();
     showLoggedIn(username);
     await loadProfile();
+    searchSkills();
     showProfile();
   } else {
     document.getElementById('reg-error').textContent = data.error;
@@ -58,14 +64,35 @@ async function logout() {
   location.reload();
 }
 
-// ===== Profile =====
-let currentProfile = null;
+async function loadSkillOptions() {
+  const [skillsRes, profileRes] = await Promise.all([
+    fetch('/api/skills'),
+    fetch('/api/profile')
+  ]);
+  const skills = await skillsRes.json();
+  const profileData = profileRes.ok ? await profileRes.json() : { skills: [] };
+  const userSkills = profileData.skills || [];
+
+  const currentTeach = userSkills.find(s => s.type === 'teach')?.skill_id;
+  const currentLearn = userSkills.find(s => s.type === 'learn')?.skill_id;
+
+  const teachSel = document.getElementById('profile-teach-skill');
+  const learnSel = document.getElementById('profile-learn-skill');
+  teachSel.innerHTML = '<option value="">เลือกทักษะที่คุณสอนได้</option>';
+  learnSel.innerHTML = '<option value="">เลือกทักษะที่คุณอยากเรียน</option>';
+
+  skills.forEach(s => {
+    const isTeach = currentTeach && s._id === currentTeach.toString() ? 'selected' : '';
+    const isLearn = currentLearn && s._id === currentLearn.toString() ? 'selected' : '';
+    teachSel.innerHTML += `<option value="${s._id}" ${isTeach}>[${s.category}] ${s.name}</option>`;
+    learnSel.innerHTML += `<option value="${s._id}" ${isLearn}>[${s.category}] ${s.name}</option>`;
+  });
+}
 
 async function loadProfile() {
   const res = await fetch('/api/profile');
   if (res.status === 401) return;
   const data = await res.json();
-  currentProfile = data;
   if (data.user) {
     document.getElementById('profile-username').textContent = data.user.username;
     document.getElementById('profile-email').textContent = data.user.email;
@@ -73,8 +100,10 @@ async function loadProfile() {
   }
 }
 
-function showProfile() {
+async function showProfile() {
   document.getElementById('modal-profile').style.display = 'flex';
+  await loadSkillOptions();
+  await loadProfile();
 }
 
 function closeProfile() {
@@ -83,21 +112,26 @@ function closeProfile() {
 
 async function saveProfile() {
   const bio = document.getElementById('profile-bio').value;
+  const teachSkill = document.getElementById('profile-teach-skill').value;
+  const learnSkill = document.getElementById('profile-learn-skill').value;
   const res = await fetch('/api/profile/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bio, teach_skills: [], learn_skills: [] })
+    body: JSON.stringify({
+      bio,
+      teach_skills: teachSkill ? [teachSkill] : [],
+      learn_skills: learnSkill ? [learnSkill] : []
+    })
   });
   const data = await res.json();
   if (data.success) {
     document.getElementById('profile-msg').textContent = '✅ บันทึกสำเร็จ!';
-    setTimeout(() => {
-      document.getElementById('profile-msg').textContent = '';
-    }, 2000);
+    setTimeout(() => document.getElementById('profile-msg').textContent = '', 2000);
+    closeProfile();
+    searchSkills();
   }
 }
 
-// ===== Search =====
 async function searchSkills() {
   const skill = document.getElementById('search-input').value;
   const category = document.getElementById('category-filter').value;
@@ -108,7 +142,7 @@ async function searchSkills() {
   const results = await res.json();
   const container = document.getElementById('search-results');
   if (results.length === 0) {
-    container.innerHTML = '<p style="color:#64748B;margin-top:1rem">ไม่พบผู้ใช้ที่ตรงกัน ลองค้นหาใหม่อีกครั้ง</p>';
+    container.innerHTML = '<p style="color:#64748B;margin-top:1rem">ไม่พบผู้ใช้ที่ตรงกัน</p>';
     return;
   }
   container.innerHTML = results.map(user => `
@@ -125,22 +159,190 @@ async function searchSkills() {
 }
 
 async function sendRequest(receiverId) {
-  alert('ส่งคำขอไปหาผู้ใช้เรียบร้อยแล้ว! 🎉');
+  const res = await fetch('/api/exchange/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ receiver_id: receiverId, message: 'สวัสดี อยากแลกเปลี่ยนทักษะกันครับ/ค่ะ' })
+  });
+  const data = await res.json();
+  if (data.success) alert('ส่งคำขอเรียบร้อยแล้ว! 🎉 ดูสถานะได้ที่ Dashboard');
+  else alert('เกิดข้อผิดพลาด ลองใหม่อีกครั้ง');
 }
 
-// ===== ตรวจสอบ session ตอนโหลดหน้า =====
 async function checkSession() {
   const res = await fetch('/api/profile');
   if (res.ok) {
     const data = await res.json();
     if (data.user) {
       showLoggedIn(data.user.username);
-      currentProfile = data;
       document.getElementById('profile-username').textContent = data.user.username;
       document.getElementById('profile-email').textContent = data.user.email;
       document.getElementById('profile-bio').value = data.user.bio || '';
     }
   }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const overlay = document.getElementById('modal-overlay');
+    const loginModal = document.getElementById('modal-login');
+    const registerModal = document.getElementById('modal-register');
+    if (overlay && overlay.style.display !== 'none') {
+      if (loginModal && loginModal.style.display !== 'none') {
+        login();
+      } else if (registerModal && registerModal.style.display !== 'none') {
+        register();
+      }
+    }
+  }
+});
+
+// ===== Dashboard =====
+async function showDashboard() {
+  document.getElementById('modal-dashboard').style.display = 'flex';
+  const res = await fetch('/api/dashboard');
+  const data = await res.json();
+
+  const receivedEl = document.getElementById('dashboard-received');
+  const sentEl = document.getElementById('dashboard-sent');
+
+  if (data.received.length === 0) {
+    receivedEl.innerHTML = '<p style="color:#64748B;font-size:0.88rem">ยังไม่มีคำขอ</p>';
+  } else {
+    receivedEl.innerHTML = data.received.map(r => `
+      <div style="background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:0.75rem">
+        <p style="font-weight:700;color:#0B1628">👤 ${r.other_username}</p>
+        <p style="font-size:0.85rem;color:#64748B;margin:0.25rem 0">${r.message || 'ไม่มีข้อความ'}</p>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center">
+          ${r.status === 'pending' ? `
+            <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${r._id}','accepted')">✅ ยอมรับ</button>
+            <button class="btn-outline" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${r._id}','rejected')">❌ ปฏิเสธ</button>
+          ` : r.status === 'accepted' ? `
+            <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
+            <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${r._id}','${r.other_username}')">💬 แชท</button>
+          ` : `<span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ปฏิเสธแล้ว</span>`}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (data.sent.length === 0) {
+    sentEl.innerHTML = '<p style="color:#64748B;font-size:0.88rem">ยังไม่ได้ส่งคำขอ</p>';
+  } else {
+    sentEl.innerHTML = data.sent.map(r => `
+      <div style="background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:0.75rem">
+        <p style="font-weight:700;color:#0B1628">👤 ${r.other_username}</p>
+        <p style="font-size:0.85rem;color:#64748B;margin:0.25rem 0">${r.message || 'ไม่มีข้อความ'}</p>
+        <div style="margin-top:0.75rem">
+          ${r.status === 'pending' ? `<span style="color:#F59E0B;font-weight:600;font-size:0.85rem">⏳ รอการตอบรับ</span>` :
+            r.status === 'accepted' ? `
+              <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
+              <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem;margin-left:0.5rem" onclick="openChat('${r._id}','${r.other_username}')">💬 แชท</button>
+            ` : `<span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ถูกปฏิเสธ</span>`}
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function closeDashboard() {
+  document.getElementById('modal-dashboard').style.display = 'none';
+}
+
+async function respondRequest(requestId, status) {
+  await fetch('/api/exchange/respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request_id: requestId, status })
+  });
+  showDashboard();
+}
+
+// ===== Chat =====
+let currentRequestId = null;
+let currentUserId = null;
+let currentUsername = null;
+let socket = null;
+
+async function openChat(requestId, otherUsername) {
+  currentRequestId = requestId;
+  document.getElementById('chat-title').textContent = `💬 แชทกับ ${otherUsername}`;
+  document.getElementById('modal-chat').style.display = 'flex';
+  document.getElementById('modal-dashboard').style.display = 'none';
+
+  // ✅ Setup input ก่อนเลย ไม่รอ async
+  const chatInput = document.getElementById('chat-input');
+  chatInput.value = '';
+  chatInput.disabled = false;
+  chatInput.onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
+  setTimeout(() => chatInput.focus(), 150);
+
+  // โหลด socket.io
+  if (!socket) {
+    socket = io();
+    socket.on('newMessage', (msg) => appendMessage(msg));
+  }
+
+  // ดึง userId จาก profile
+  try {
+    const profileRes = await fetch('/api/profile');
+    if (profileRes.ok) {
+      const profileData = await profileRes.json();
+      currentUserId = profileData.user?._id;
+      currentUsername = profileData.user?.username;
+    }
+  } catch (e) {
+    console.error('Profile fetch failed:', e);
+  }
+
+  if (currentUserId) socket.emit('join', currentUserId);
+  socket.emit('joinRoom', requestId);
+
+  // โหลดข้อความเก่า
+  try {
+    const res = await fetch(`/api/chat/${requestId}`);
+    const messages = await res.json();
+    const container = document.getElementById('chat-messages');
+    container.innerHTML = '';
+    messages.forEach(msg => appendMessage(msg));
+  } catch (e) {
+    console.error('Chat load failed:', e);
+  }
+}
+
+function appendMessage(msg) {
+  const container = document.getElementById('chat-messages');
+  const isMine = msg.sender_id === currentUserId || msg.sender_id?.toString() === currentUserId?.toString();
+  const div = document.createElement('div');
+  div.style.cssText = `display:flex;flex-direction:column;align-items:${isMine ? 'flex-end' : 'flex-start'}`;
+  div.innerHTML = `
+    <span style="font-size:0.72rem;color:#94A3B8;margin-bottom:0.2rem">${msg.sender_name}</span>
+    <div style="background:${isMine ? '#C9A84C' : '#fff'};color:${isMine ? '#0B1628' : '#1E293B'};
+      padding:0.6rem 1rem;border-radius:${isMine ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};
+      max-width:75%;font-size:0.9rem;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
+      ${msg.text}
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !currentRequestId) return;
+  socket.emit('sendMessage', {
+    requestId: currentRequestId,
+    senderId: currentUserId,
+    senderName: currentUsername,
+    text
+  });
+  input.value = '';
+}
+
+function closeChat() {
+  document.getElementById('modal-chat').style.display = 'none';
+  document.getElementById('modal-dashboard').style.display = 'flex';
 }
 
 checkSession();
