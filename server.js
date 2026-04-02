@@ -222,3 +222,19 @@ io.on('connection', (socket) => {
 httpServer.listen(PORT, () => {
   console.log(`🌉 KnowBridge running at http://localhost:${PORT}`);
 });
+
+// --- Socket.io ---
+app.delete('/api/exchange/request/:id', requireLogin, async (req, res) => {
+  try {
+    await db.exchange_requests.deleteOne({
+      _id: new ObjectId(req.params.id),
+      $or: [
+        { sender_id: new ObjectId(req.session.userId) },
+        { receiver_id: new ObjectId(req.session.userId) }
+      ]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false });
+  }
+});

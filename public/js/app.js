@@ -57,6 +57,7 @@ function showLoggedIn(username) {
   document.getElementById('btn-logout').style.display = 'inline';
   document.getElementById('nav-dashboard').style.display = 'inline';
   document.getElementById('nav-profile').style.display = 'inline';
+  updateHero(username);
 }
 
 async function logout() {
@@ -178,6 +179,7 @@ async function checkSession() {
       document.getElementById('profile-username').textContent = data.user.username;
       document.getElementById('profile-email').textContent = data.user.email;
       document.getElementById('profile-bio').value = data.user.bio || '';
+      updateHero(data.user.username);
     }
   }
 }
@@ -213,14 +215,18 @@ async function showDashboard() {
       <div style="background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:0.75rem">
         <p style="font-weight:700;color:#0B1628">👤 ${r.other_username}</p>
         <p style="font-size:0.85rem;color:#64748B;margin:0.25rem 0">${r.message || 'ไม่มีข้อความ'}</p>
-        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center">
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap">
           ${r.status === 'pending' ? `
             <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${r._id}','accepted')">✅ ยอมรับ</button>
             <button class="btn-outline" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${r._id}','rejected')">❌ ปฏิเสธ</button>
           ` : r.status === 'accepted' ? `
             <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
             <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${r._id}','${r.other_username}')">💬 แชท</button>
-          ` : `<span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ปฏิเสธแล้ว</span>`}
+            <button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${r._id}')">🗑️ ลบ</button>
+          ` : `
+            <span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ปฏิเสธแล้ว</span>
+            <button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${r._id}')">🗑️ ลบ</button>
+          `}
         </div>
       </div>
     `).join('');
@@ -233,12 +239,18 @@ async function showDashboard() {
       <div style="background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:0.75rem">
         <p style="font-weight:700;color:#0B1628">👤 ${r.other_username}</p>
         <p style="font-size:0.85rem;color:#64748B;margin:0.25rem 0">${r.message || 'ไม่มีข้อความ'}</p>
-        <div style="margin-top:0.75rem">
-          ${r.status === 'pending' ? `<span style="color:#F59E0B;font-weight:600;font-size:0.85rem">⏳ รอการตอบรับ</span>` :
-            r.status === 'accepted' ? `
-              <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
-              <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem;margin-left:0.5rem" onclick="openChat('${r._id}','${r.other_username}')">💬 แชท</button>
-            ` : `<span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ถูกปฏิเสธ</span>`}
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap">
+          ${r.status === 'pending' ? `
+            <span style="color:#F59E0B;font-weight:600;font-size:0.85rem">⏳ รอการตอบรับ</span>
+            <button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${r._id}')">🗑️ ลบ</button>
+          ` : r.status === 'accepted' ? `
+            <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
+            <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${r._id}','${r.other_username}')">💬 แชท</button>
+            <button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${r._id}')">🗑️ ลบ</button>
+          ` : `
+            <span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ถูกปฏิเสธ</span>
+            <button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${r._id}')">🗑️ ลบ</button>
+          `}
         </div>
       </div>
     `).join('');
@@ -258,6 +270,12 @@ async function respondRequest(requestId, status) {
   showDashboard();
 }
 
+async function deleteRequest(requestId) {
+  if (!confirm('ลบคำขอนี้ออกจาก Dashboard?')) return;
+  await fetch(`/api/exchange/request/${requestId}`, { method: 'DELETE' });
+  showDashboard();
+}
+
 // ===== Chat =====
 let currentRequestId = null;
 let currentUserId = null;
@@ -270,20 +288,17 @@ async function openChat(requestId, otherUsername) {
   document.getElementById('modal-chat').style.display = 'flex';
   document.getElementById('modal-dashboard').style.display = 'none';
 
-  // ✅ Setup input ก่อนเลย ไม่รอ async
   const chatInput = document.getElementById('chat-input');
   chatInput.value = '';
   chatInput.disabled = false;
   chatInput.onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
   setTimeout(() => chatInput.focus(), 150);
 
-  // โหลด socket.io
   if (!socket) {
     socket = io();
     socket.on('newMessage', (msg) => appendMessage(msg));
   }
 
-  // ดึง userId จาก profile
   try {
     const profileRes = await fetch('/api/profile');
     if (profileRes.ok) {
@@ -298,7 +313,6 @@ async function openChat(requestId, otherUsername) {
   if (currentUserId) socket.emit('join', currentUserId);
   socket.emit('joinRoom', requestId);
 
-  // โหลดข้อความเก่า
   try {
     const res = await fetch(`/api/chat/${requestId}`);
     const messages = await res.json();
@@ -343,6 +357,43 @@ function sendChat() {
 function closeChat() {
   document.getElementById('modal-chat').style.display = 'none';
   document.getElementById('modal-dashboard').style.display = 'flex';
+}
+async function updateHero(username) {
+  // ดึงข้อมูล profile + skills
+  const res = await fetch('/api/profile');
+  if (!res.ok) return;
+  const data = await res.json();
+  const teach = data.skills?.find(s => s.type === 'teach');
+  const learn = data.skills?.find(s => s.type === 'learn');
+
+  const heroContent = document.querySelector('.hero-content');
+  if (!heroContent) return;
+
+  heroContent.innerHTML = `
+    <p class="hero-sub animate-up">เข้าสู่ระบบสำเร็จ</p>
+    <h1 class="animate-up delay-1" style="font-size:2.8rem">
+      ยินดีต้อนรับสู่สะพานแห่งการแบ่งปัน<br>
+      <span class="gold-text">${username}</span>
+    </h1>
+    <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
+      ${teach ? `<div style="background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.3);border-radius:12px;padding:0.85rem 1.25rem">
+        <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);letter-spacing:1px;text-transform:uppercase;margin-bottom:0.3rem">🎓 ฉันสอนได้</div>
+        <div style="color:var(--gold-light);font-weight:700;font-size:1rem">${teach.skill_name}</div>
+      </div>` : `<div style="background:rgba(255,255,255,0.05);border:1px dashed rgba(201,168,76,0.3);border-radius:12px;padding:0.85rem 1.25rem;cursor:pointer" onclick="showProfile()">
+        <div style="color:rgba(255,255,255,0.4);font-size:0.88rem">+ เพิ่มทักษะที่สอนได้</div>
+      </div>`}
+      ${learn ? `<div style="background:rgba(99,179,237,0.08);border:1px solid rgba(99,179,237,0.25);border-radius:12px;padding:0.85rem 1.25rem">
+        <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);letter-spacing:1px;text-transform:uppercase;margin-bottom:0.3rem">📚 ฉันอยากเรียน</div>
+        <div style="color:#90CDF4;font-weight:700;font-size:1rem">${learn.skill_name}</div>
+      </div>` : `<div style="background:rgba(255,255,255,0.05);border:1px dashed rgba(99,179,237,0.25);border-radius:12px;padding:0.85rem 1.25rem;cursor:pointer" onclick="showProfile()">
+        <div style="color:rgba(255,255,255,0.4);font-size:0.88rem">+ เพิ่มทักษะที่อยากเรียน</div>
+      </div>`}
+    </div>
+    <div class="hero-btns animate-up delay-3">
+      <button class="btn-gold" onclick="showDashboard()">📬 Dashboard</button>
+      <button class="btn-ghost" onclick="document.getElementById('search').scrollIntoView({behavior:'smooth'})">ค้นหาทักษะ</button>
+    </div>
+  `;
 }
 
 checkSession();
