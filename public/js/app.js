@@ -372,7 +372,8 @@ async function updateHero(username) {
   heroContent.innerHTML = `
     <p class="hero-sub animate-up">เข้าสู่ระบบสำเร็จ</p>
     <h1 class="animate-up delay-1" style="font-size:2.8rem">
-      ยินดีต้อนรับสู่สะพานแห่งการแบ่งปัน<br>
+      ยินดีต้อนรับเข้าสู่<br>
+      สะพานแห่งการแบ่งปัน<br>
       <span class="gold-text">${username}</span>
     </h1>
     <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
