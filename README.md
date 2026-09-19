@@ -189,4 +189,4 @@ npm start
 
 ---
 
-โปรเจคนี้เป็นส่วนหนึ่งของผลงานใน [resume ออนไลน์](https://paradonlambensa.github.io/resume-site/)
+โปรเจคนี้เป็นส่วนหนึ่งของผลงานใน [portfolio ออนไลน์](https://paradonlambensa.github.io/Portfolio-site/)
