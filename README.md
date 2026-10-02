@@ -54,6 +54,10 @@
 - ห้องแชทผูกกับคำขอแลกเปลี่ยนแต่ละรายการ
 - ข้อความเข้าทันทีผ่าน Socket.IO และบันทึกลงฐานข้อมูล เปิดใหม่ก็ยังอยู่
 
+**รีวิวและคะแนน**
+- ให้คะแนน 1–5 ดาวพร้อมความคิดเห็น หลังคำขอถูกตอบรับ ได้ครั้งเดียวต่อคำขอ
+- คะแนนเฉลี่ยแสดงบนการ์ดผลค้นหา กดดูโปรไฟล์เพื่ออ่านรีวิวทั้งหมดได้
+
 ## เทคโนโลยีที่ใช้
 
 | ส่วน | ใช้อะไร |
@@ -78,7 +82,7 @@ Knowbridge/
 │   ├── css/style.css
 │   ├── js/app.js      ← เรียก API, จัดการ modal, และ Socket.IO ฝั่ง client
 │   └── image/
-└── .azure/config      ← ค่าตั้งต้นสำหรับ deploy ขึ้น Azure App Service
+└── render.yaml        ← Blueprint สำหรับ deploy ขึ้น Render
 ```
 
 ## วิธีรัน
@@ -148,15 +152,19 @@ npm start
 | `GET` | `/api/dashboard` | ✓ | คำขอที่ได้รับและที่ส่งไป พร้อมชื่อคู่สนทนา |
 | `POST` | `/api/exchange/respond` | ✓ | ตอบรับหรือปฏิเสธคำขอ |
 | `DELETE` | `/api/exchange/request/:id` | ✓ | ลบคำขอ (ทำได้ทั้งผู้ส่งและผู้รับ) |
-| `GET` | `/api/chat/:requestId` | ✓ | ประวัติแชทของคำขอนั้น เรียงตามเวลา |
+| `GET` | `/api/chat/:requestId` | ✓ | ประวัติแชทของคำขอนั้น เรียงตามเวลา (เฉพาะคู่กรณี) |
+| `POST` | `/api/review` | ✓ | ให้คะแนน 1–5 กับอีกฝ่ายของคำขอที่ตอบรับแล้ว ได้ครั้งเดียวต่อคำขอ |
+| `GET` | `/api/review/check/:requestId` | ✓ | เช็กว่ารีวิวคำขอนี้ไปแล้วหรือยัง |
+| `GET` | `/api/user/:userId/rating` | | คะแนนเฉลี่ยและจำนวนรีวิว |
+| `GET` | `/api/user/:userId/reviews` | | รีวิวทั้งหมดของผู้ใช้ ใหม่สุดก่อน |
+| `GET` | `/api/user/:userId/profile` | | โปรไฟล์สาธารณะ: bio, ทักษะ, คะแนน และรีวิว |
 
 ## Socket.IO
 
 | ทิศทาง | Event | Payload | ทำอะไร |
 |---|---|---|---|
-| client → server | `join` | `userId` | ผูก socket เข้ากับผู้ใช้ |
-| client → server | `joinRoom` | `requestId` | เข้าห้องแชทของคำขอนั้น |
-| client → server | `sendMessage` | `{ requestId, senderId, senderName, text }` | บันทึกข้อความลง DB แล้วกระจายให้ทุกคนในห้อง |
+| client → server | `joinRoom` | `requestId` | เข้าห้องแชท — เฉพาะคู่กรณีของคำขอที่ตอบรับแล้ว |
+| client → server | `sendMessage` | `{ requestId, text }` | บันทึกข้อความลง DB แล้วกระจายให้ทุกคนในห้อง (ผู้ส่งอ่านจาก session) |
 | server → client | `newMessage` | ข้อความที่บันทึกแล้ว | มีข้อความใหม่เข้าห้อง |
 
 ## Collection ในฐานข้อมูล
@@ -168,19 +176,27 @@ npm start
 | `user_skills` | ผูก user กับ skill พร้อม `type` เป็น `teach` หรือ `learn` |
 | `exchange_requests` | ผู้ส่ง, ผู้รับ, ข้อความ, สถานะ, เวลาที่สร้าง |
 | `messages` | ข้อความแชท ผูกกับ `request_id` |
-| `reviews` | ประกาศไว้แล้ว แต่ยังไม่ได้ใช้ — เผื่อฟีเจอร์ให้คะแนนหลังแลกเปลี่ยน |
+| `reviews` | คะแนน 1–5 และความคิดเห็น ผูกกับคำขอ ผู้รีวิว และผู้ถูกรีวิว |
 
 ## Deploy
 
-ในโฟลเดอร์ `.azure/` มีค่าตั้งต้นสำหรับ Azure App Service อยู่แล้ว
-(resource group `knowbridge-rg`, plan `knowbridge-plan` แบบ B1, region `japaneast`)
+deploy ขึ้น [Render](https://render.com) ได้ฟรีผ่านไฟล์ `render.yaml` ที่รากโปรเจค
+(web service แบบ free, region `singapore`, ใช้ Node ≥ 20.19 ตาม `engines` ใน `package.json`)
 
-อย่าลืมตั้ง `MONGODB_URI` และ `SESSION_SECRET` ใน Application Settings ของ App Service
-ไฟล์ `.env` ไม่ได้ถูก commit ขึ้นมาด้วย
+1. push โค้ดขึ้น GitHub
+2. ใน Render Dashboard เลือก **New → Blueprint** แล้วเลือก repo นี้
+3. กรอก `MONGODB_URI` ตอนที่ Render ถาม — `SESSION_SECRET` ระบบสุ่มให้เอง
+4. ใน MongoDB Atlas → **Network Access** เพิ่ม `0.0.0.0/0` เพราะ IP ขาออกของ Render free ไม่คงที่
+
+ไฟล์ `.env` ไม่ได้ถูก commit ขึ้นมาด้วย ค่าทั้งหมดตั้งใน Environment ของ Render
+
+> ⚠️ แผน free จะหลับเมื่อไม่มีคนเข้าราว 15 นาที เปิดครั้งแรกหลังหลับจะช้าประมาณ 1 นาที
+> และเพราะ session เก็บในหน่วยความจำ (`MemoryStore`) ทุกครั้งที่ระบบหลับหรือ restart ผู้ใช้จะถูก logout
 
 ## ที่อยากทำต่อ
 
-- [ ] ระบบรีวิว/ให้คะแนนหลังแลกเปลี่ยนเสร็จ (collection `reviews` เตรียมไว้แล้ว)
+- [x] ระบบรีวิว/ให้คะแนนหลังแลกเปลี่ยนเสร็จ
+- [ ] เก็บ session ใน MongoDB แทนหน่วยความจำ จะได้ไม่หลุด login ตอน server restart
 - [ ] แจ้งเตือนเมื่อมีคำขอใหม่หรือข้อความใหม่ ตอนนี้ต้องเข้ามาเช็กเอง
 - [ ] ล้าง `nedb-promises` กับไฟล์ `knowbridge.db` ออก — เป็นของเหลือจากตอนที่ยังใช้ NeDB
       ก่อนย้ายมา MongoDB ตอนนี้ไม่มีโค้ดส่วนไหนเรียกใช้แล้ว
