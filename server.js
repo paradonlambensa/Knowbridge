@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const { MongoStore } = require('connect-mongo');
 const { db, ObjectId, client, dbName, ready } = require('./database');
+const postsRouter = require('./routes/posts');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -143,8 +144,11 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ success: true });
+  // รอให้ลบ session ออกจาก MongoDB เสร็จก่อนตอบ ไม่งั้นหน้าเว็บที่ reload ทันทีอาจยังเห็นว่า login อยู่
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.json({ success: true });
+  });
 });
 
 // --- Skills ---
@@ -430,6 +434,9 @@ app.delete('/api/exchange/request/:id', requireLogin, async (req, res) => {
     res.json({ success: false });
   }
 });
+
+// --- Community feed (routes/posts.js) ---
+app.use('/api', postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId }));
 
 // --- Socket.io ---
 io.on('connection', (socket) => {

@@ -20,6 +20,8 @@ async function connectDB() {
     db.exchange_requests = database.collection('exchange_requests');
     db.reviews           = database.collection('reviews');
     db.messages          = database.collection('messages');
+    db.posts             = database.collection('posts');
+    db.comments          = database.collection('comments');
 
     await Promise.all([
       db.messages.createIndex({ request_id: 1, created_at: 1 }),
@@ -27,6 +29,10 @@ async function connectDB() {
       db.reviews.createIndex({ reviewee_id: 1 }),
       db.exchange_requests.createIndex({ receiver_id: 1 }),
       db.exchange_requests.createIndex({ sender_id: 1 }),
+      // ฟีดเรียงตาม _id (ObjectId เรียงตามเวลาสร้างอยู่แล้ว)
+      db.posts.createIndex({ tags: 1, _id: -1 }),
+      db.posts.createIndex({ author_id: 1, _id: -1 }),
+      db.comments.createIndex({ post_id: 1, _id: 1 }),
     ]);
 
     // ✅ รัน seed แยกกันทีละตัว ไม่ผูกกัน

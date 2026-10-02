@@ -9,9 +9,9 @@ const CATEGORY_TH = { IT: 'ไอที', Language: 'ภาษา', Art: 'ศิ
 const categoryLabel = (c) => CATEGORY_TH[c] || c;
 
 // วงกลมตัวอักษรแรกของชื่อ แทนรูปโปรไฟล์
-function avatar(name, size = '') {
+function avatar(name, size = '', attrs = '') {
   const first = [...String(name || '?')][0].toUpperCase();
-  return `<div class="avatar ${size}">${esc(first)}</div>`;
+  return `<div class="avatar ${size}" ${attrs}>${esc(first)}</div>`;
 }
 
 function ratingHtml(avg, count) {
@@ -111,9 +111,13 @@ function showLoggedIn(username) {
   document.getElementById('btn-logout').style.display = '';
   document.getElementById('nav-dashboard').style.display = '';
   document.getElementById('nav-profile').style.display = '';
+  currentUsername = username;
   updateHero(username);
   ensureSocket();
   refreshBadge();
+  renderComposer();
+  // ฟีดที่โหลดไว้ตอนยังไม่ login ไม่รู้ว่าเรากดถูกใจอะไร/โพสต์ไหนเป็นของเรา
+  if (feedLoaded) loadFeed(true);
 }
 
 async function logout() {
@@ -126,7 +130,9 @@ const NOTIFY_TEXT = {
   request:  (n) => `📬 <b>${esc(n.from)}</b> ส่งคำขอแลกเปลี่ยนมา`,
   accepted: (n) => `✅ <b>${esc(n.from)}</b> ยอมรับคำขอของคุณแล้ว เริ่มแชทได้เลย`,
   rejected: (n) => `<b>${esc(n.from)}</b> ปฏิเสธคำขอของคุณ`,
-  message:  (n) => `💬 <b>${esc(n.from)}</b><small>${esc(n.preview)}</small>`
+  message:  (n) => `💬 <b>${esc(n.from)}</b><small>${esc(n.preview)}</small>`,
+  like:     (n) => `❤️ <b>${esc(n.from)}</b> ถูกใจโพสต์ของคุณ`,
+  comment:  (n) => `💬 <b>${esc(n.from)}</b> แสดงความคิดเห็นในโพสต์ของคุณ<small>${esc(n.preview)}</small>`
 };
 
 function showToast(html, onClick) {
@@ -160,13 +166,16 @@ function markChatRead(requestId) {
 }
 
 async function handleNotify(n) {
+  if (n.type === 'like' || n.type === 'comment') bumpPostCount(n);
   if (n.type === 'message' && isChatOpen(n.request_id)) {
     // กำลังเปิดแชทนี้อยู่ ข้อความขึ้นในหน้าต่างแล้ว แค่บันทึกว่าอ่านแล้ว
     await markChatRead(n.request_id);
   } else {
     const onClick = n.type === 'message'
       ? async () => { await showDashboard(); openChat(n.request_id); }
-      : showDashboard;
+      : (n.type === 'like' || n.type === 'comment')
+        ? () => goToPost(n.post_id)
+        : showDashboard;
     showToast((NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n), onClick);
     if (document.getElementById('modal-dashboard').style.display !== 'none') showDashboard();
   }
@@ -180,6 +189,7 @@ function ensureSocket() {
     if (msg.request_id === currentRequestId) appendMessage(msg);
   });
   socket.on('notify', handleNotify);
+  socket.on('feed:new', onFeedNew);
   // หลุดแล้วต่อใหม่ (เช่น server restart) ต้อง join ห้องแชทที่เปิดค้างไว้อีกครั้ง
   socket.on('connect', () => {
     if (currentRequestId) socket.emit('joinRoom', currentRequestId);
@@ -296,10 +306,27 @@ async function showUserProfile(userId) {
     <p class="profile-bio">${esc(user.bio || 'ยังไม่ได้เขียนแนะนำตัว')}</p>
     <div class="skill-list">${skills.map(skillTag).join('') || '<span class="muted">ยังไม่ได้ระบุทักษะ</span>'}</div>
     ${isMe ? '' : `<button class="btn btn-primary btn-block" onclick="sendRequest('${esc(user._id)}')">ขอแลกเปลี่ยน</button>`}
+    <div id="user-recent-posts"></div>
     <hr class="divider" />
     <h3 class="subheading">รีวิว (${reviews.length})</h3>
     ${renderReviews(reviews)}
   `;
+
+  const { posts } = await (await fetch(`/api/posts?author=${encodeURIComponent(userId)}&limit=3`)).json();
+  const box = document.getElementById('user-recent-posts');
+  if (box && posts.length) {
+    box.innerHTML = `
+      <hr class="divider" />
+      <h3 class="subheading">โพสต์ล่าสุด</h3>
+      ${posts.map(p => `
+        <div class="mini-post">
+          <div class="post-text">${formatPostText(p.text)}</div>
+          <div class="post-meta">${timeAgo(p.created_at)} · ♥ ${p.like_count} · ความคิดเห็น ${p.comment_count}
+            <a href="#community" class="btn btn-ghost" onclick="closeUserProfile(); goToPost('${esc(p._id)}'); return false;">ดูโพสต์</a>
+          </div>
+        </div>`).join('')}
+    `;
+  }
 }
 
 function closeUserProfile() {
@@ -493,6 +520,7 @@ async function deleteRequest(requestId) {
 // ===== Chat =====
 let currentRequestId = null;
 let currentUserId = null;
+let currentUsername = null;
 let socket = null;
 
 async function openChat(requestId) {
@@ -645,5 +673,399 @@ async function submitRating() {
   }
 }
 
+// ===== ชุมชน (ฟีดสาธารณะ) =====
+const POST_MAX = 500;
+// ลิงก์ หรือ #แท็ก — ส่วนแท็กต้องตรงกับ HASHTAG_RE ใน routes/posts.js
+const TOKEN_RE = /(https?:\/\/[^\s<>"']+)|(^|[^\p{L}\p{M}\p{N}_&/#])#([\p{L}\p{M}\p{N}_]*[\p{L}\p{M}][\p{L}\p{M}\p{N}_]*)/gu;
+const ICON_HEART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+const ICON_COMMENT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/></svg>';
+
+let currentView = 'home';
+let feedLoaded = false;
+let feedLoading = false;
+let feedNext = null;
+let feedTag = '';
+let feedPending = 0;
+let pendingFocusPost = null;
+
+// escape ทีละชิ้นก่อนแปลงลิงก์/แท็ก — ไม่ regex ทับ HTML ที่ escape แล้ว
+function formatPostText(text) {
+  let html = '';
+  let last = 0;
+  for (const m of text.matchAll(TOKEN_RE)) {
+    const [, url, prefix, tag] = m;
+    html += esc(text.slice(last, m.index));
+    if (url) {
+      const clean = url.replace(/[.,!?;:)\]]+$/, ''); // วงเล็บ/จุดท้ายประโยคไม่ใช่ส่วนของลิงก์
+      html += `<a href="${esc(clean)}" target="_blank" rel="noopener noreferrer nofollow">${esc(clean)}</a>`;
+      last = m.index + clean.length;
+    } else {
+      html += esc(prefix) + `<a href="#community" class="hashtag" data-tag="${esc(tag.toLowerCase())}">#${esc(tag)}</a>`;
+      last = m.index + m[0].length;
+    }
+  }
+  return html + esc(text.slice(last));
+}
+
+function timeAgo(date) {
+  const s = Math.floor((Date.now() - new Date(date)) / 1000);
+  if (s < 60) return 'เมื่อสักครู่';
+  if (s < 3600) return `${Math.floor(s / 60)} นาที`;
+  if (s < 86400) return `${Math.floor(s / 3600)} ชม.`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)} วัน`;
+  return new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+}
+
+function timeTag(date) {
+  return `<time datetime="${esc(date)}" title="${esc(new Date(date).toLocaleString('th-TH'))}">${timeAgo(date)}</time>`;
+}
+
+function renderPost(p) {
+  const user = `data-action="profile" data-user="${esc(p.author_id)}"`;
+  return `
+    <article class="post" id="post-${esc(p._id)}" data-id="${esc(p._id)}">
+      ${avatar(p.author_name, '', user)}
+      <div class="post-body">
+        <div class="post-meta">
+          <span class="post-author" ${user}>${esc(p.author_name)}</span>
+          <span>·</span>${timeTag(p.created_at)}
+          ${p.mine ? '<button class="btn btn-danger" data-action="delete-post">ลบ</button>' : ''}
+        </div>
+        <div class="post-text">${formatPostText(p.text)}</div>
+        <div class="post-actions">
+          <button class="action like ${p.liked ? 'on' : ''}" data-action="like" aria-pressed="${p.liked}" aria-label="ถูกใจ">${ICON_HEART}<span class="n">${p.like_count || ''}</span></button>
+          <button class="action" data-action="comments" aria-label="ความคิดเห็น">${ICON_COMMENT}<span class="n">${p.comment_count || ''}</span></button>
+        </div>
+        <div class="comments" hidden></div>
+      </div>
+    </article>`;
+}
+
+function renderComment(c) {
+  const user = `data-action="profile" data-user="${esc(c.author_id)}"`;
+  return `
+    <div class="comment" data-comment="${esc(c._id)}">
+      ${avatar(c.author_name, '', user)}
+      <div class="comment-body">
+        <div class="post-meta">
+          <span class="post-author" ${user}>${esc(c.author_name)}</span>
+          <span>·</span>${timeTag(c.created_at)}
+          ${c.mine ? '<button class="btn btn-danger" data-action="delete-comment">ลบ</button>' : ''}
+        </div>
+        <div class="post-text">${formatPostText(c.text)}</div>
+      </div>
+    </div>`;
+}
+
+function emptyFeedHtml() {
+  return `<div class="empty"><b>${feedTag ? `ยังไม่มีโพสต์ใน #${esc(feedTag)}` : 'ยังไม่มีโพสต์'}</b>เริ่มแชร์ความรู้เป็นคนแรกได้เลย</div>`;
+}
+
+async function loadFeed(reset = true) {
+  if (feedLoading) return;
+  feedLoading = true;
+  try {
+    const params = new URLSearchParams({ limit: 15 });
+    if (!reset && feedNext) params.set('before', feedNext);
+    if (feedTag) params.set('tag', feedTag);
+    const data = await (await fetch(`/api/posts?${params}`)).json();
+    const list = document.getElementById('feed-list');
+    const html = data.posts.map(renderPost).join('');
+    if (reset) {
+      list.innerHTML = html || emptyFeedHtml();
+      feedPending = 0;
+      updateNewPill();
+      loadTrendingTags();
+    } else {
+      list.insertAdjacentHTML('beforeend', html);
+    }
+    feedNext = data.next;
+    feedLoaded = true;
+    document.getElementById('feed-more').hidden = !feedNext;
+    renderFeedFilter();
+    if (pendingFocusPost && !focusPendingPost()) pendingFocusPost = null;
+  } finally {
+    feedLoading = false;
+  }
+}
+
+async function loadTrendingTags() {
+  const tags = await (await fetch('/api/posts/trending-tags')).json();
+  document.getElementById('feed-tags').innerHTML = tags.map(t => `
+    <button class="chip ${t.tag === feedTag ? 'active' : ''}" data-tag="${esc(t.tag)}">#${esc(t.tag)}<span class="count">${t.count}</span></button>
+  `).join('');
+}
+
+function renderFeedFilter() {
+  const el = document.getElementById('feed-filter');
+  el.hidden = !feedTag;
+  el.innerHTML = feedTag
+    ? `<span>แสดงเฉพาะโพสต์ที่มี <b>#${esc(feedTag)}</b></span><button class="btn btn-ghost btn-sm" onclick="setFeedTag('')">ดูทั้งหมด</button>`
+    : '';
+  document.querySelectorAll('#feed-tags .chip').forEach(c => c.classList.toggle('active', c.dataset.tag === feedTag));
+}
+
+function setFeedTag(tag) {
+  feedTag = tag;
+  if (currentView !== 'community') location.hash = '#community'; // route() จะโหลดฟีดให้
+  else { loadFeed(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+}
+
+function renderComposer() {
+  const el = document.getElementById('composer');
+  if (!currentUsername) {
+    el.innerHTML = `
+      <div class="composer-guest">
+        <span>เข้าสู่ระบบเพื่อโพสต์ ถูกใจ และแสดงความคิดเห็น</span>
+        <button class="btn btn-primary btn-sm" onclick="showModal('login')">เข้าสู่ระบบ</button>
+      </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <form class="composer" id="composer-form">
+      ${avatar(currentUsername)}
+      <div class="composer-main">
+        <textarea id="composer-text" rows="2" placeholder="แชร์ความรู้ เคล็ดลับ หรือถามคำถาม..." aria-label="เขียนโพสต์"></textarea>
+        <div class="composer-foot">
+          <span class="composer-hint">ใส่ #แท็ก เช่น #python ให้คนหาเจอง่าย</span>
+          <span class="char-count" id="composer-count"></span>
+          <button class="btn btn-primary btn-sm" type="submit" id="composer-submit" disabled>โพสต์</button>
+        </div>
+      </div>
+    </form>`;
+  const ta = document.getElementById('composer-text');
+  ta.addEventListener('input', updateComposer);
+  // Ctrl/⌘ + Enter = โพสต์
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) document.getElementById('composer-form').requestSubmit();
+  });
+  document.getElementById('composer-form').addEventListener('submit', (e) => { e.preventDefault(); submitPost(); });
+}
+
+function updateComposer() {
+  const ta = document.getElementById('composer-text');
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+  const len = [...ta.value].length;
+  const counter = document.getElementById('composer-count');
+  // บอกจำนวนที่เหลือเฉพาะตอนใกล้เต็ม จะได้ไม่รก
+  counter.textContent = len > POST_MAX - 50 ? `${POST_MAX - len}` : '';
+  counter.classList.toggle('over', len > POST_MAX);
+  document.getElementById('composer-submit').disabled = !ta.value.trim() || len > POST_MAX;
+}
+
+async function submitPost() {
+  const ta = document.getElementById('composer-text');
+  const btn = document.getElementById('composer-submit');
+  btn.disabled = true;
+  const res = await fetch('/api/posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: ta.value })
+  });
+  const data = await res.json();
+  if (!data.success) {
+    showToast(esc(data.error || 'โพสต์ไม่สำเร็จ'));
+    updateComposer();
+    return;
+  }
+  ta.value = '';
+  updateComposer();
+  if (!feedTag || data.post.tags.includes(feedTag)) {
+    const list = document.getElementById('feed-list');
+    list.querySelector('.empty')?.remove();
+    list.insertAdjacentHTML('afterbegin', renderPost(data.post));
+  } else {
+    showToast('โพสต์แล้ว (ไม่ได้อยู่ในแท็กที่กำลังดู)');
+  }
+  loadTrendingTags();
+}
+
+function setLike(btn, liked, count) {
+  btn.classList.toggle('on', liked);
+  btn.setAttribute('aria-pressed', liked);
+  btn.querySelector('.n').textContent = count || '';
+}
+
+async function toggleLike(postEl) {
+  if (!currentUsername) return showModal('login');
+  const btn = postEl.querySelector('[data-action="like"]');
+  const wasLiked = btn.classList.contains('on');
+  const count = parseInt(btn.querySelector('.n').textContent || '0');
+  setLike(btn, !wasLiked, count + (wasLiked ? -1 : 1)); // แสดงผลทันที ไม่รอ server
+  const res = await fetch(`/api/posts/${postEl.dataset.id}/like`, { method: 'POST' });
+  if (!res.ok) return setLike(btn, wasLiked, count);
+  const data = await res.json();
+  setLike(btn, data.liked, data.like_count);
+}
+
+async function toggleComments(postEl, focusInput = true) {
+  const box = postEl.querySelector('.comments');
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<p class="muted" style="font-size:0.85rem">กำลังโหลด...</p>';
+  const comments = await (await fetch(`/api/posts/${postEl.dataset.id}/comments`)).json();
+  box.innerHTML = `<div class="comment-list">${comments.map(renderComment).join('')}</div>` + (currentUsername
+    ? `<form class="comment-form">
+         <input class="input" maxlength="300" placeholder="เขียนความคิดเห็น..." aria-label="เขียนความคิดเห็น" autocomplete="off" />
+         <button class="btn btn-primary btn-sm" type="submit">ส่ง</button>
+       </form>`
+    : `<p class="muted" style="font-size:0.85rem;margin-top:0.5rem"><a href="#" data-action="login">เข้าสู่ระบบ</a> เพื่อแสดงความคิดเห็น</p>`);
+  if (focusInput) box.querySelector('.comment-form input')?.focus();
+}
+
+function setCommentCount(postEl, count) {
+  postEl.querySelector('[data-action="comments"] .n').textContent = count || '';
+}
+
+async function submitComment(postEl, form) {
+  const input = form.querySelector('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.disabled = true;
+  const res = await fetch(`/api/posts/${postEl.dataset.id}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  input.disabled = false;
+  if (!data.success) return showToast(esc(data.error || 'ส่งความคิดเห็นไม่สำเร็จ'));
+  input.value = '';
+  input.focus();
+  postEl.querySelector('.comment-list').insertAdjacentHTML('beforeend', renderComment(data.comment));
+  setCommentCount(postEl, data.comment_count);
+}
+
+async function deletePost(postEl) {
+  if (!confirm('ลบโพสต์นี้? ความคิดเห็นทั้งหมดจะถูกลบด้วย')) return;
+  const res = await fetch(`/api/posts/${postEl.dataset.id}`, { method: 'DELETE' });
+  if (!res.ok) return showToast('ลบไม่สำเร็จ');
+  postEl.remove();
+  const list = document.getElementById('feed-list');
+  if (!list.querySelector('.post')) list.innerHTML = emptyFeedHtml();
+  loadTrendingTags();
+}
+
+async function deleteComment(postEl, commentEl) {
+  if (!confirm('ลบความคิดเห็นนี้?')) return;
+  const res = await fetch(`/api/comments/${commentEl.dataset.comment}`, { method: 'DELETE' });
+  if (!res.ok) return showToast('ลบไม่สำเร็จ');
+  const data = await res.json();
+  commentEl.remove();
+  setCommentCount(postEl, data.comment_count);
+}
+
+// ปุ่มทุกปุ่มในฟีดใช้ data-action ตัวเดียว ไม่ต้องผูก onclick ทีละโพสต์
+document.getElementById('feed-list').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const postEl = el.closest('.post');
+  switch (el.dataset.action) {
+    case 'profile': showUserProfile(el.dataset.user); break;
+    case 'like': toggleLike(postEl); break;
+    case 'comments': toggleComments(postEl); break;
+    case 'delete-post': deletePost(postEl); break;
+    case 'delete-comment': deleteComment(postEl, el.closest('.comment')); break;
+    case 'login': e.preventDefault(); showModal('login'); break;
+  }
+});
+
+document.getElementById('feed-list').addEventListener('submit', (e) => {
+  if (!e.target.matches('.comment-form')) return;
+  e.preventDefault();
+  submitComment(e.target.closest('.post'), e.target);
+});
+
+document.getElementById('feed-tags').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (chip) setFeedTag(chip.dataset.tag === feedTag ? '' : chip.dataset.tag);
+});
+
+// กด #แท็ก ที่ไหนก็ได้ (ฟีด หรือโพสต์ในโปรไฟล์) → ไปฟีดที่กรองแท็กนั้น
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a.hashtag');
+  if (!link) return;
+  e.preventDefault();
+  closeUserProfile();
+  setFeedTag(link.dataset.tag);
+});
+
+// มีคนถูกใจ/แสดงความคิดเห็นในโพสต์ของเรา → อัปเดตตัวเลขบนโพสต์ที่แสดงอยู่ทันที
+function bumpPostCount(n) {
+  const postEl = document.getElementById('post-' + n.post_id);
+  if (!postEl) return;
+  const counter = postEl.querySelector(`[data-action="${n.type === 'like' ? 'like' : 'comments'}"] .n`);
+  counter.textContent = (n.type === 'like' ? n.like_count : n.comment_count) || '';
+  const box = postEl.querySelector('.comments');
+  if (n.type === 'comment' && !box.hidden) { box.hidden = true; toggleComments(postEl, false); }
+}
+
+function onFeedNew({ author_id }) {
+  if (author_id === currentUserId) return; // โพสต์ของเราขึ้นฟีดไปแล้วตอนกดโพสต์
+  feedPending++;
+  updateNewPill();
+}
+
+function updateNewPill() {
+  const pill = document.getElementById('feed-new-pill');
+  pill.hidden = !feedPending;
+  pill.textContent = `↑ มีโพสต์ใหม่ ${feedPending} โพสต์`;
+}
+
+document.getElementById('feed-new-pill').onclick = async () => {
+  await loadFeed(true);
+  document.querySelector('.feed-head').scrollIntoView({ behavior: 'smooth' });
+};
+
+// เปิดโพสต์จากแจ้งเตือน / โปรไฟล์: ไปหน้าชุมชนแล้วเลื่อนไปที่โพสต์นั้น
+function goToPost(postId) {
+  pendingFocusPost = String(postId);
+  closeDashboard();
+  closeUserProfile();
+  if (currentView !== 'community' || feedTag) {
+    feedTag = '';
+    if (currentView !== 'community') location.hash = '#community';
+    else loadFeed(true);
+  } else if (!focusPendingPost()) {
+    loadFeed(true);
+  }
+}
+
+function focusPendingPost() {
+  const el = pendingFocusPost && document.getElementById('post-' + pendingFocusPost);
+  if (!el) return false;
+  pendingFocusPost = null;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('highlight');
+  void el.offsetWidth; // เริ่ม animation ใหม่
+  el.classList.add('highlight');
+  if (el.querySelector('.comments').hidden) toggleComments(el, false);
+  return true;
+}
+
+// ===== สลับหน้า: หน้าแรก ↔ ชุมชน (ใช้ #community ใน URL จะได้กด back/แชร์ลิงก์ได้) =====
+function route() {
+  const view = location.hash.startsWith('#community') ? 'community' : 'home';
+  const changed = view !== currentView;
+  currentView = view;
+  document.getElementById('view-home').hidden = view !== 'home';
+  document.getElementById('view-community').hidden = view !== 'community';
+  document.querySelectorAll('#nav-links a[data-view="community"]').forEach(a => a.classList.toggle('active', view === 'community'));
+  if (view === 'community') {
+    if (changed || !feedLoaded) {
+      renderComposer();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      loadFeed(true);
+    }
+  } else if (changed) {
+    // ลิงก์อย่าง #search ถูกกดตอนหน้าแรกยังซ่อนอยู่ เลยต้องเลื่อนเอง
+    const target = location.hash && document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView({ behavior: 'instant' }); else window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+}
+window.addEventListener('hashchange', route);
+
 checkSession();
 searchSkills();
+route();

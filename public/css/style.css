@@ -75,6 +75,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-danger { color: var(--danger); }
 .btn-danger:hover { background: var(--danger-pale); }
 .btn-sm { padding: 0.4rem 0.85rem; font-size: 0.85rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-block { width: 100%; }
 .btn .nav-badge { margin-left: 0.15rem; }
 
@@ -364,6 +365,91 @@ textarea.input { resize: vertical; min-height: 84px; }
 .profile-bio { color: var(--text-muted); margin-bottom: 1rem; }
 .skill-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.25rem; }
 
+/* ===== ชุมชน (ฟีด) ===== */
+.nav-links a.active { color: var(--blue); }
+.feed-page { padding-top: 2.5rem; }
+.feed-container { max-width: 640px; }
+.feed-head { margin-bottom: 1.25rem; }
+
+.composer, .composer-guest {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; margin-bottom: 1rem; background: var(--white);
+}
+.composer { display: flex; gap: 0.75rem; }
+.composer:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(var(--blue-rgb),0.08); }
+.composer-main { flex: 1; min-width: 0; }
+.composer textarea {
+  width: 100%; border: none; outline: none; resize: none;
+  font-size: 1rem; min-height: 64px; background: none;
+}
+.composer textarea::placeholder { color: var(--text-faint); }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.5rem; }
+.composer-hint { font-size: 0.8rem; color: var(--text-faint); }
+.char-count { font-size: 0.8rem; color: var(--text-faint); margin-left: auto; }
+.char-count.over { color: var(--danger); font-weight: 600; }
+.composer-guest { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; color: var(--text-muted); }
+
+.feed-tags { justify-content: flex-start; margin-bottom: 1rem; }
+.feed-tags:empty { display: none; }
+.feed-tags .chip .count { color: var(--text-faint); margin-left: 0.25rem; font-size: 0.8rem; }
+.feed-filter {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.9rem; margin-bottom: 1rem;
+  background: var(--blue-pale); color: var(--blue-dark); border-radius: var(--radius-sm); font-size: 0.92rem;
+}
+
+.new-posts-pill {
+  position: sticky; top: calc(var(--nav-h) + 0.75rem); z-index: 5;
+  display: block; margin: 0 auto 1rem;
+  padding: 0.45rem 1rem; border: none; border-radius: 999px;
+  background: var(--blue); color: var(--white); font-weight: 600; font-size: 0.88rem;
+  box-shadow: 0 6px 18px rgba(var(--blue-rgb),0.3); cursor: pointer;
+}
+
+.feed-list { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 1rem; overflow: hidden; }
+.feed-list:empty { display: none; }
+.feed-list .empty { border: none; }
+.post { display: flex; gap: 0.75rem; padding: 1rem; border-bottom: 1px solid var(--border); background: var(--white); }
+.post:last-child { border-bottom: none; }
+.post.highlight { animation: highlight 2s ease-out; }
+@keyframes highlight { from { background: var(--blue-pale); } to { background: var(--white); } }
+.post > .avatar { cursor: pointer; }
+.post-body { flex: 1; min-width: 0; }
+.post-meta { display: flex; align-items: baseline; gap: 0.35rem; font-size: 0.9rem; color: var(--text-faint); }
+.post-author { color: var(--text); font-weight: 700; cursor: pointer; }
+.post-author:hover { color: var(--blue); }
+.post-meta .btn { margin-left: auto; padding: 0.15rem 0.5rem; font-size: 0.8rem; font-weight: 500; }
+.post-text { margin-top: 0.15rem; white-space: pre-wrap; word-break: break-word; }
+.post-text a { color: var(--blue); }
+.post-text a:hover { text-decoration: underline; }
+
+.post-actions { display: flex; gap: 1.25rem; margin-top: 0.5rem; }
+.action {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  border: none; background: none; cursor: pointer;
+  color: var(--text-light); font-size: 0.85rem; padding: 0.25rem 0.4rem; margin-left: -0.4rem;
+  border-radius: 999px; transition: color 0.15s, background 0.15s;
+}
+.action svg { width: 18px; height: 18px; }
+.action:hover { color: var(--blue); background: var(--blue-pale); }
+.action.like:hover, .action.like.on { color: #E11D48; }
+.action.like:hover { background: #FFF1F3; }
+.action.like.on svg { fill: currentColor; }
+
+.comments { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); }
+.comment { display: flex; gap: 0.6rem; padding: 0.4rem 0; }
+.comment .avatar { width: 30px; height: 30px; font-size: 0.8rem; }
+.comment-body { flex: 1; min-width: 0; font-size: 0.9rem; }
+.comment-body .post-meta { font-size: 0.82rem; }
+.comment-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.comment-form .input { flex: 1; min-width: 0; padding: 0.5rem 0.75rem; font-size: 0.9rem; }
+
+/* โพสต์ล่าสุดในโปรไฟล์คนอื่น */
+.mini-post { padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+.mini-post:last-child { border-bottom: none; }
+.mini-post .post-text { font-size: 0.92rem; }
+.mini-post .post-meta { font-size: 0.78rem; margin-top: 0.25rem; }
+
 /* ===== Toast ===== */
 #toast-container {
   position: fixed; right: 1rem; bottom: 1rem; z-index: 500;
@@ -407,4 +493,9 @@ textarea.input { resize: vertical; min-height: 84px; }
   .search-box .btn { width: 100%; }
   .modal { padding: 1.4rem; }
   .chat-modal { padding: 0; height: 92vh; }
+  /* แท็กยอดนิยมเป็นแถวเดียว ปัดซ้าย-ขวา ไม่กินที่หลายบรรทัด */
+  .feed-tags { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-left: -1.5rem; margin-right: -1.5rem; padding: 0 1.5rem; }
+  .feed-tags::-webkit-scrollbar { display: none; }
+  .feed-tags .chip { flex-shrink: 0; }
+  .composer-hint { display: none; }
 }

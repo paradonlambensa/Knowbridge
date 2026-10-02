@@ -194,6 +194,67 @@ async function run() {
   res = await json(api(C, '/api/search?skill=English'));
   check('ผลค้นหาแสดงคะแนนใหม่', res.find(x => x.username === B.username)?.avg_rating === 5);
 
+  // --- ชุมชน (ฟีด) ---
+  const [fA, fB] = await Promise.all([sio(A), sio(B)]);
+  const feedTag = 'feed' + tag; // แท็กไม่ซ้ำกันในแต่ละรอบ
+  check('โพสต์ว่างไม่ได้', (await post(A, '/api/posts', { text: '   ' })).status === 400);
+  check('โพสต์เกิน 500 ตัวอักษรไม่ได้', (await post(A, '/api/posts', { text: 'ก'.repeat(501) })).status === 400);
+  check('ยังไม่ login โพสต์ไม่ได้ (401)', (await post(null, '/api/posts', { text: 'hi' })).status === 401);
+  j = await json(post(A, '/api/posts', { text: `แชร์เทคนิค #${feedTag} และ #Python <b>x</b> https://x.com/a#frag` }));
+  check('A โพสต์ได้ พร้อมดึงแท็ก (ไม่นับ #frag ในลิงก์)', j.success && JSON.stringify(j.post.tags) === JSON.stringify([feedTag, 'python']) && j.post.mine, JSON.stringify(j.post?.tags));
+  const postId = j.post._id;
+  await sleep(500);
+  check('คนอื่นได้ feed:new แบบเรียลไทม์', fB.of('feed:new').some(e => e.post_id === postId && e.author_id === A.id));
+
+  let feed = await json(api(null, '/api/posts?tag=' + feedTag));
+  check('คนที่ไม่ได้ login อ่านฟีดได้ และกรองตามแท็กได้', feed.posts.length === 1 && feed.posts[0]._id === postId && feed.posts[0].author_name === A.username);
+  check('ข้อความเก็บตามจริง (escape ตอนแสดงผลฝั่ง client)', feed.posts[0].text.includes('<b>x</b>'));
+  check('ฟีดไม่ส่งรายชื่อคนกดถูกใจออกไป', !('likes' in feed.posts[0]));
+
+  j = await json(post(B, `/api/posts/${postId}/like`, {}));
+  await sleep(400);
+  check('B กดถูกใจ', j.success && j.liked && j.like_count === 1);
+  check('A ได้แจ้งเตือนถูกใจ', fA.of('notify').some(n => n.type === 'like' && n.from === B.username && n.post_id === postId));
+  feed = await json(api(B, '/api/posts?tag=' + feedTag));
+  check('ฟีดของ B บอกว่ากดถูกใจแล้ว', feed.posts[0].liked === true && feed.posts[0].like_count === 1 && !feed.posts[0].mine);
+  j = await json(post(B, `/api/posts/${postId}/like`, {}));
+  check('กดซ้ำ = ยกเลิกถูกใจ', j.success && !j.liked && j.like_count === 0);
+  j = await json(post(A, `/api/posts/${postId}/like`, {}));
+  await sleep(300);
+  check('ถูกใจโพสต์ตัวเองไม่แจ้งเตือนหาตัวเอง', j.liked && fA.of('notify').filter(n => n.type === 'like').length === 1);
+
+  check('ความคิดเห็นว่างไม่ได้', (await post(B, `/api/posts/${postId}/comments`, { text: '' })).status === 400);
+  j = await json(post(B, `/api/posts/${postId}/comments`, { text: 'ขอบคุณครับ' }));
+  await sleep(400);
+  check('B แสดงความคิดเห็น', j.success && j.comment_count === 1 && j.comment.mine);
+  const commentId = j.comment._id;
+  check('A ได้แจ้งเตือนความคิดเห็น', fA.of('notify').some(n => n.type === 'comment' && n.preview === 'ขอบคุณครับ'));
+  let comments = await json(api(null, `/api/posts/${postId}/comments`));
+  check('อ่านความคิดเห็นได้ พร้อมชื่อผู้เขียน', comments.length === 1 && comments[0].author_name === B.username && !comments[0].mine);
+  check('A ลบความคิดเห็นของ B ไม่ได้ (403)', (await api(A, `/api/comments/${commentId}`, { method: 'DELETE' })).status === 403);
+  j = await json(api(B, `/api/comments/${commentId}`, { method: 'DELETE' }));
+  check('B ลบความคิดเห็นตัวเองได้ และนับใหม่', j.success && j.comment_count === 0);
+  await post(C, `/api/posts/${postId}/comments`, { text: 'ความคิดเห็นที่ต้องหายไปพร้อมโพสต์' });
+
+  for (let i = 0; i < 3; i++) await post(B, '/api/posts', { text: `หน้า ${i} #${feedTag}` });
+  const p1 = await json(api(null, `/api/posts?tag=${feedTag}&limit=2`));
+  const p2 = await json(api(null, `/api/posts?tag=${feedTag}&limit=2&before=${p1.next}`));
+  const ids = [...p1.posts, ...p2.posts].map(p => p._id);
+  check('ฟีดแบ่งหน้าได้ ใหม่สุดก่อน ไม่ซ้ำ',
+    p1.posts.length === 2 && p1.next && p2.posts.length === 2 && p2.next === null &&
+    new Set(ids).size === 4 && p1.posts[0].text.startsWith('หน้า 2') && ids[3] === postId);
+  const trending = await json(api(null, '/api/posts/trending-tags'));
+  check('แท็กยอดนิยมเรียงจากมากไปน้อย', Array.isArray(trending) && trending.length > 0 &&
+    trending.every((t, i) => t.tag && t.count >= (trending[i + 1]?.count ?? 0)));
+  const byA = await json(api(null, `/api/posts?author=${A.id}`));
+  check('ดูโพสต์ของผู้ใช้คนเดียวได้ (ใช้ในโปรไฟล์)', byA.posts.length >= 1 && byA.posts.every(p => p.author_id === A.id));
+
+  check('B ลบโพสต์ของ A ไม่ได้ (403)', (await api(B, `/api/posts/${postId}`, { method: 'DELETE' })).status === 403);
+  j = await json(api(A, `/api/posts/${postId}`, { method: 'DELETE' }));
+  comments = await json(api(null, `/api/posts/${postId}/comments`));
+  check('A ลบโพสต์ตัวเองได้ ความคิดเห็นถูกลบตามไปด้วย', j.success && comments.length === 0);
+  fA.ws.close(); fB.ws.close();
+
   // --- id ไม่ถูกต้อง ---
   check('profile id มั่ว → 404', (await api(null, '/api/user/xyz/profile')).status === 404);
   check('ลบด้วย id มั่วไม่พัง', (await json(api(A, '/api/exchange/request/xyz', { method: 'DELETE' }))).success === false);

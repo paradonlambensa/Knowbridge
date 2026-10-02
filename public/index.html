@@ -19,8 +19,9 @@
       </a>
       <button class="nav-toggle" id="nav-toggle" aria-label="เปิดเมนู" aria-controls="nav-links" aria-expanded="false" onclick="toggleNav()">☰<span id="nav-toggle-badge" class="nav-badge"></span></button>
       <nav class="nav-links" id="nav-links">
-        <a href="#search">ค้นหา</a>
-        <a href="#how">วิธีใช้งาน</a>
+        <a href="#search" data-view="home">ค้นหาผู้สอน</a>
+        <a href="#community" data-view="community">ชุมชน</a>
+        <a href="#how" data-view="home">วิธีใช้งาน</a>
         <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard(); return false;">คำขอของฉัน<span id="nav-badge" class="nav-badge"></span></a>
         <a href="#" id="nav-profile" style="display:none" onclick="showProfile(); return false;">โปรไฟล์</a>
         <button id="btn-logout" style="display:none" class="btn btn-outline btn-sm" onclick="logout()">ออกจากระบบ</button>
@@ -30,6 +31,8 @@
   </header>
 
   <main id="top">
+  <!-- ===== หน้าแรก: ค้นหาผู้สอน ===== -->
+  <div id="view-home">
     <!-- Hero + ค้นหา -->
     <section class="hero">
       <div class="container">
@@ -89,6 +92,28 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- ===== ชุมชน: ฟีดสาธารณะ ===== -->
+  <div id="view-community" hidden>
+    <section class="section feed-page">
+      <div class="container feed-container">
+        <div class="feed-head">
+          <h2>ชุมชน</h2>
+          <p class="section-sub">แชร์ความรู้ เคล็ดลับ หรือถามคำถามกับทุกคน</p>
+        </div>
+
+        <div id="composer"></div>
+
+        <div class="chips feed-tags" id="feed-tags" aria-label="แท็กยอดนิยม"></div>
+        <div id="feed-filter" class="feed-filter" hidden></div>
+
+        <button id="feed-new-pill" class="new-posts-pill" hidden onclick="loadFeed(true)"></button>
+        <div id="feed-list" class="feed-list"></div>
+        <button id="feed-more" class="btn btn-outline btn-block" hidden onclick="loadFeed(false)">โหลดโพสต์เก่ากว่านี้</button>
+      </div>
+    </section>
+  </div>
   </main>
 
   <footer class="footer">
