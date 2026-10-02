@@ -219,8 +219,8 @@ async function searchSkills() {
       <p><strong>สอน:</strong> ${esc(user.skill_name)}</p>
       <p style="margin-top:0.5rem">${esc(user.bio || 'ยังไม่มีคำอธิบาย')}</p>
       <div style="display:flex;gap:0.5rem;margin-top:1rem">
-        <button class="btn-outline" style="flex:1" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
-        <button class="btn-gold" style="flex:1" onclick="sendRequest('${esc(user.id)}')">ขอแลกเปลี่ยน</button>
+        <button class="btn-outline" style="flex:1;padding:0.6rem 0.5rem;white-space:nowrap" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
+        <button class="btn-gold" style="flex:1;padding:0.6rem 0.5rem;font-size:0.9rem;white-space:nowrap" onclick="sendRequest('${esc(user.id)}')">ขอแลกเปลี่ยน</button>
       </div>
     </div>
   `).join('');
