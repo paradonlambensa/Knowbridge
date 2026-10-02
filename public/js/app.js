@@ -83,6 +83,71 @@ function showLoggedIn(username) {
   document.getElementById('nav-dashboard').style.display = 'inline';
   document.getElementById('nav-profile').style.display = 'inline';
   updateHero(username);
+  ensureSocket();
+  refreshBadge();
+}
+
+// ===== Notifications =====
+const NOTIFY_TEXT = {
+  request:  (n) => `📬 <b>${esc(n.from)}</b> ส่งคำขอแลกเปลี่ยนมา`,
+  accepted: (n) => `✅ <b>${esc(n.from)}</b> ยอมรับคำขอของคุณแล้ว เริ่มแชทได้เลย`,
+  rejected: (n) => `❌ <b>${esc(n.from)}</b> ปฏิเสธคำขอของคุณ`,
+  message:  (n) => `💬 <b>${esc(n.from)}</b><small>${esc(n.preview)}</small>`
+};
+
+function showToast(html, onClick) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = html;
+  const dismiss = () => { el.classList.add('hide'); setTimeout(() => el.remove(), 300); };
+  el.onclick = () => { dismiss(); onClick?.(); };
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(dismiss, 6000);
+}
+
+async function refreshBadge() {
+  const res = await fetch('/api/notifications');
+  if (!res.ok) return;
+  const { pending_requests, unread_messages } = await res.json();
+  const total = pending_requests + unread_messages;
+  document.getElementById('nav-badge').textContent = total > 0 ? (total > 99 ? '99+' : total) : '';
+  document.title = (total > 0 ? `(${total}) ` : '') + 'KnowBridge — เชื่อมความรู้ เชื่อมคน';
+}
+
+function isChatOpen(requestId) {
+  return currentRequestId === requestId && document.getElementById('modal-chat').style.display !== 'none';
+}
+
+function markChatRead(requestId) {
+  return fetch(`/api/chat/${requestId}/read`, { method: 'POST' });
+}
+
+async function handleNotify(n) {
+  if (n.type === 'message' && isChatOpen(n.request_id)) {
+    // กำลังเปิดแชทนี้อยู่ ข้อความขึ้นในหน้าต่างแล้ว แค่บันทึกว่าอ่านแล้ว
+    await markChatRead(n.request_id);
+  } else {
+    const onClick = n.type === 'message'
+      ? async () => { await showDashboard(); openChat(n.request_id); }
+      : showDashboard;
+    showToast((NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n), onClick);
+    if (document.getElementById('modal-dashboard').style.display !== 'none') showDashboard();
+  }
+  refreshBadge();
+}
+
+function ensureSocket() {
+  if (socket) return socket;
+  socket = io();
+  socket.on('newMessage', (msg) => {
+    if (msg.request_id === currentRequestId) appendMessage(msg);
+  });
+  socket.on('notify', handleNotify);
+  // หลุดแล้วต่อใหม่ (เช่น server restart) ต้อง join ห้องแชทที่เปิดค้างไว้อีกครั้ง
+  socket.on('connect', () => {
+    if (currentRequestId) socket.emit('joinRoom', currentRequestId);
+  });
+  return socket;
 }
 
 async function logout() {
@@ -290,7 +355,7 @@ function renderRequestCard(r, isReceived) {
   } else if (r.status === 'accepted') {
     actions = `
       <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
-      <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${id}')">💬 แชท</button>
+      <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${id}')">💬 แชท${r.unread ? `<span class="nav-badge">${r.unread}</span>` : ''}</button>
       ${r.reviewed
         ? '<span style="color:#94A3B8;font-size:0.8rem">⭐ รีวิวแล้ว</span>'
         : `<button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem" onclick="openRating('${id}')">⭐ ให้คะแนน</button>`}
@@ -325,6 +390,8 @@ async function showDashboard() {
   document.getElementById('dashboard-sent').innerHTML = data.sent.length
     ? data.sent.map(r => renderRequestCard(r, false)).join('')
     : '<p style="color:#64748B;font-size:0.88rem">ยังไม่ได้ส่งคำขอ</p>';
+  // ตอบรับ/ปฏิเสธ/ลบ/ปิดแชท ล้วนกลับมาที่นี่ — อัปเดต badge ให้ตรงทุกครั้ง
+  refreshBadge();
 }
 
 function closeDashboard() {
@@ -377,20 +444,17 @@ async function openChat(requestId) {
   chatInput.onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
   setTimeout(() => chatInput.focus(), 150);
 
-  if (!socket) {
-    socket = io();
-    socket.on('newMessage', (msg) => {
-      if (msg.request_id === currentRequestId) appendMessage(msg);
-    });
-  }
-  socket.emit('joinRoom', requestId);
+  ensureSocket().emit('joinRoom', requestId);
 
   const container = document.getElementById('chat-messages');
   container.innerHTML = '';
   try {
+    // server บันทึกว่าอ่านแล้วตอนโหลดประวัติ
     const res = await fetch(`/api/chat/${requestId}`);
     const messages = await res.json();
     messages.forEach(msg => appendMessage(msg));
+    if (req) req.unread = 0;
+    refreshBadge();
   } catch (e) {
     console.error('Chat load failed:', e);
   }
@@ -424,7 +488,8 @@ function sendChat() {
 
 function closeChat() {
   document.getElementById('modal-chat').style.display = 'none';
-  document.getElementById('modal-dashboard').style.display = 'flex';
+  currentRequestId = null;
+  showDashboard();
 }
 
 async function updateHero(username) {

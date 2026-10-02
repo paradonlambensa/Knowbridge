@@ -19,7 +19,7 @@
       <a href="#how">วิธีใช้งาน</a>
       <a href="#search">ค้นหาทักษะ</a>
       <a href="#about">เกี่ยวกับเรา</a>
-      <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard()">Dashboard</a>
+      <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard()">Dashboard<span id="nav-badge" class="nav-badge"></span></a>
       <a href="#" id="nav-profile" style="display:none" onclick="showProfile()">โปรไฟล์ของฉัน</a>
       <button id="btn-logout" style="display:none" onclick="logout()" class="btn-outline">ออกจากระบบ</button>
       <button id="btn-login-nav" class="btn-outline" onclick="showModal('login')">เข้าสู่ระบบ</button>
@@ -297,6 +297,8 @@
       <p id="rating-msg" style="margin-top:0.75rem;font-size:0.85rem;color:#10B981"></p>
     </div>
   </div>
+
+  <div id="toast-container" aria-live="polite"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/app.js"></script>

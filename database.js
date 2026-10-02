@@ -3,14 +3,16 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const uri = process.env.MONGODB_URI;
+// ตั้ง MONGODB_DB เป็นชื่ออื่น (เช่น knowbridge_dev) ตอนรันในเครื่อง จะได้ไม่ปนกับข้อมูลเว็บจริง
+const dbName = process.env.MONGODB_DB || 'knowbridge';
 const client = new MongoClient(uri);
 const db = {};
 
 async function connectDB() {
   try {
     await client.connect();
-    console.log('✅ Connected to MongoDB Atlas');
-    const database = client.db('knowbridge');
+    console.log(`✅ Connected to MongoDB Atlas (db: ${dbName})`);
+    const database = client.db(dbName);
 
     db.users             = database.collection('users');
     db.skills            = database.collection('skills');
@@ -18,6 +20,14 @@ async function connectDB() {
     db.exchange_requests = database.collection('exchange_requests');
     db.reviews           = database.collection('reviews');
     db.messages          = database.collection('messages');
+
+    await Promise.all([
+      db.messages.createIndex({ request_id: 1, created_at: 1 }),
+      db.reviews.createIndex({ request_id: 1, reviewer_id: 1 }, { unique: true }),
+      db.reviews.createIndex({ reviewee_id: 1 }),
+      db.exchange_requests.createIndex({ receiver_id: 1 }),
+      db.exchange_requests.createIndex({ sender_id: 1 }),
+    ]);
 
     // ✅ รัน seed แยกกันทีละตัว ไม่ผูกกัน
     await seedSkills();
@@ -118,5 +128,5 @@ async function seedUserSkills() {
   }
 }
 
-connectDB();
-module.exports = { db, ObjectId };
+const ready = connectDB();
+module.exports = { db, ObjectId, client, dbName, ready };

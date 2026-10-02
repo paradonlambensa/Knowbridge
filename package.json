@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/e2e.js"
   },
   "keywords": [],
   "author": "",
@@ -15,11 +16,11 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "connect-mongo": "^6.0.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "mongodb": "^7.1.1",
-    "nedb-promises": "^6.2.3",
     "socket.io": "^4.8.3"
   }
 }

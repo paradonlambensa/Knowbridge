@@ -1,7 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
-const { db, ObjectId } = require('./database');
+const { MongoStore } = require('connect-mongo');
+const { db, ObjectId, client, dbName, ready } = require('./database');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -10,7 +11,10 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
+const SESSION_TTL = 24 * 60 * 60; // วินาที
 
+// Render/โฮสต์ส่วนใหญ่อยู่หลัง proxy ที่ทำ HTTPS ให้ — ต้องเชื่อ proxy ถึงจะตั้งคุกกี้ secure ได้
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
@@ -18,7 +22,15 @@ const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'knowbridge-secret-2024',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' }
+  // เก็บ session ใน MongoDB ไม่หลุด login ตอน server restart หรือ Render free หลับ
+  store: MongoStore.create({
+    clientPromise: ready.then(() => client),
+    dbName,
+    collectionName: 'sessions',
+    ttl: SESSION_TTL,
+    touchAfter: 60 * 60
+  }),
+  cookie: { maxAge: SESSION_TTL * 1000, httpOnly: true, sameSite: 'lax', secure: 'auto' }
 });
 app.use(sessionMiddleware);
 // ให้ socket.io ใช้ session เดียวกับ express เพื่อรู้ว่าใครเป็นคนส่งข้อความ
@@ -27,6 +39,30 @@ io.engine.use(sessionMiddleware);
 function requireLogin(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'กรุณา Login ก่อน' });
   next();
+}
+
+// ทุก socket ของผู้ใช้ join ห้อง user:<id> ไว้ ส่งแจ้งเตือนถึงทุกแท็บที่เปิดอยู่ได้ในครั้งเดียว
+function notify(userId, payload) {
+  io.to('user:' + userId.toString()).emit('notify', { ...payload, at: new Date() });
+}
+
+// จำนวนข้อความที่ยังไม่อ่านของ userId ในแต่ละคำขอ → { requestId: count }
+async function getUnreadCounts(requests, userId) {
+  const counts = {};
+  await Promise.all(requests.map(async r => {
+    const lastRead = r.last_read?.[userId];
+    const query = { request_id: r._id, sender_id: { $ne: userId } };
+    if (lastRead) query.created_at = { $gt: lastRead };
+    counts[r._id.toString()] = await db.messages.countDocuments(query);
+  }));
+  return counts;
+}
+
+function markChatRead(requestId, userId) {
+  return db.exchange_requests.updateOne(
+    { _id: new ObjectId(requestId) },
+    { $set: { [`last_read.${userId}`]: new Date() } }
+  );
 }
 
 function isValidId(id) {
@@ -197,6 +233,7 @@ app.post('/api/exchange/request', requireLogin, async (req, res) => {
       status: 'pending',
       created_at: new Date()
     });
+    notify(receiver_id, { type: 'request', from: req.session.username });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false });
@@ -205,18 +242,22 @@ app.post('/api/exchange/request', requireLogin, async (req, res) => {
 
 app.get('/api/dashboard', requireLogin, async (req, res) => {
   try {
-    const received = await db.exchange_requests.find({ receiver_id: new ObjectId(req.session.userId) }).toArray();
-    const sent = await db.exchange_requests.find({ sender_id: new ObjectId(req.session.userId) }).toArray();
-    const myReviews = await db.reviews.find({ reviewer_id: new ObjectId(req.session.userId) }).toArray();
+    const me = req.session.userId;
+    const newestFirst = { created_at: -1 };
+    const received = await db.exchange_requests.find({ receiver_id: new ObjectId(me) }).sort(newestFirst).toArray();
+    const sent = await db.exchange_requests.find({ sender_id: new ObjectId(me) }).sort(newestFirst).toArray();
+    const myReviews = await db.reviews.find({ reviewer_id: new ObjectId(me) }).toArray();
     const reviewedIds = new Set(myReviews.map(r => r.request_id.toString()));
+    const unread = await getUnreadCounts([...received, ...sent].filter(r => r.status === 'accepted'), me);
 
-    const enriched = async (list, idField) => Promise.all(list.map(async r => {
+    const enriched = async (list, idField) => Promise.all(list.map(async ({ last_read, ...r }) => {
       const user = await db.users.findOne({ _id: r[idField] });
       return {
         ...r,
         other_user_id: r[idField],
         other_username: user?.username || 'ไม่ทราบชื่อ',
-        reviewed: reviewedIds.has(r._id.toString())
+        reviewed: reviewedIds.has(r._id.toString()),
+        unread: unread[r._id.toString()] || 0
       };
     }));
 
@@ -234,13 +275,30 @@ app.post('/api/exchange/respond', requireLogin, async (req, res) => {
     const { request_id, status } = req.body;
     if (!isValidId(request_id) || !['accepted', 'rejected'].includes(status))
       return res.json({ success: false });
-    await db.exchange_requests.updateOne(
+    const updated = await db.exchange_requests.findOneAndUpdate(
       { _id: new ObjectId(request_id), status: 'pending', receiver_id: new ObjectId(req.session.userId) },
       { $set: { status } }
     );
+    if (updated) notify(updated.sender_id, { type: status, from: req.session.username });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false });
+  }
+});
+
+// ตัวเลขบน badge ของ Dashboard: คำขอที่รอเราตอบ + ข้อความที่ยังไม่อ่าน
+app.get('/api/notifications', requireLogin, async (req, res) => {
+  try {
+    const me = req.session.userId;
+    const pending = await db.exchange_requests.countDocuments({ receiver_id: new ObjectId(me), status: 'pending' });
+    const accepted = await db.exchange_requests.find({
+      status: 'accepted',
+      $or: [{ sender_id: new ObjectId(me) }, { receiver_id: new ObjectId(me) }]
+    }).toArray();
+    const unread = Object.values(await getUnreadCounts(accepted, me)).reduce((a, b) => a + b, 0);
+    res.json({ pending_requests: pending, unread_messages: unread });
+  } catch (e) {
+    res.json({ pending_requests: 0, unread_messages: 0 });
   }
 });
 
@@ -252,9 +310,22 @@ app.get('/api/chat/:requestId', requireLogin, async (req, res) => {
     const messages = await db.messages.find({
       request_id: new ObjectId(req.params.requestId)
     }).sort({ created_at: 1 }).toArray();
+    await markChatRead(req.params.requestId, req.session.userId);
     res.json(messages);
   } catch (e) {
     res.json([]);
+  }
+});
+
+// เรียกตอนแชทเปิดค้างอยู่แล้วมีข้อความใหม่เข้ามา หรือตอนปิดแชท
+app.post('/api/chat/:requestId/read', requireLogin, async (req, res) => {
+  try {
+    const request = await findAcceptedRequestForUser(req.params.requestId, req.session.userId);
+    if (!request) return res.status(403).json({ success: false });
+    await markChatRead(req.params.requestId, req.session.userId);
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false });
   }
 });
 
@@ -361,18 +432,19 @@ app.delete('/api/exchange/request/:id', requireLogin, async (req, res) => {
 });
 
 // --- Socket.io ---
-const onlineUsers = {};
-
 io.on('connection', (socket) => {
   const sess = socket.request.session;
   const userId = sess?.userId;
   if (!userId) return socket.disconnect(true);
-  onlineUsers[userId] = socket.id;
+  socket.join('user:' + userId);
+  const chatPeers = {}; // requestId → userId ของอีกฝ่าย (ไว้ส่งแจ้งเตือนข้อความใหม่)
 
   socket.on('joinRoom', async (requestId) => {
     try {
       const request = await findAcceptedRequestForUser(requestId, userId);
-      if (request) socket.join(requestId);
+      if (!request) return;
+      socket.join(requestId);
+      chatPeers[requestId] = request.sender_id.toString() === userId ? request.receiver_id : request.sender_id;
     } catch (e) {
       console.error('joinRoom error:', e);
     }
@@ -391,13 +463,15 @@ io.on('connection', (socket) => {
       };
       await db.messages.insertOne(msg);
       io.to(requestId).emit('newMessage', { ...msg, request_id: requestId });
+      notify(chatPeers[requestId], {
+        type: 'message',
+        request_id: requestId,
+        from: sess.username,
+        preview: text.slice(0, 80)
+      });
     } catch (e) {
       console.error('sendMessage error:', e);
     }
-  });
-
-  socket.on('disconnect', () => {
-    if (onlineUsers[userId] === socket.id) delete onlineUsers[userId];
   });
 });
 
