@@ -5,28 +5,57 @@ function esc(str) {
   }[c]));
 }
 
-function ratingText(avg, count) {
-  return avg ? `⭐ ${avg} (${count} รีวิว)` : '⭐ ยังไม่มีรีวิว';
+const CATEGORY_TH = { IT: 'ไอที', Language: 'ภาษา', Art: 'ศิลปะ', Music: 'ดนตรี', Other: 'อื่น ๆ' };
+const categoryLabel = (c) => CATEGORY_TH[c] || c;
+
+// วงกลมตัวอักษรแรกของชื่อ แทนรูปโปรไฟล์
+function avatar(name, size = '') {
+  const first = [...String(name || '?')][0].toUpperCase();
+  return `<div class="avatar ${size}">${esc(first)}</div>`;
+}
+
+function ratingHtml(avg, count) {
+  return avg
+    ? `<span class="stars">★</span> ${avg} · ${count} รีวิว`
+    : 'ยังไม่มีรีวิว';
 }
 
 function renderReviews(reviews) {
-  if (!reviews.length) return '<p style="color:#64748B;font-size:0.88rem">ยังไม่มีรีวิว</p>';
+  if (!reviews.length) return '<p class="muted" style="font-size:0.9rem">ยังไม่มีรีวิว</p>';
   return reviews.map(r => `
-    <div style="background:#F4F6F9;border-radius:12px;padding:0.85rem 1rem;margin-bottom:0.6rem">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-weight:700;color:#0B1628;font-size:0.9rem">👤 ${esc(r.reviewer_name)}</span>
-        <span style="color:#F59E0B;font-size:0.85rem">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
+    <div class="review">
+      <div class="review-head">
+        <b>${esc(r.reviewer_name)}</b>
+        <span class="rating"><span class="stars">${'★'.repeat(r.rating)}</span>${'☆'.repeat(5 - r.rating)}</span>
       </div>
-      ${r.comment ? `<p style="color:#475569;font-size:0.88rem;margin-top:0.35rem">${esc(r.comment)}</p>` : ''}
-      <p style="color:#94A3B8;font-size:0.72rem;margin-top:0.35rem">${new Date(r.created_at).toLocaleDateString('th-TH')}</p>
+      ${r.comment ? `<p>${esc(r.comment)}</p>` : ''}
+      <time>${new Date(r.created_at).toLocaleDateString('th-TH')}</time>
     </div>
   `).join('');
 }
 
+// ===== Navbar (มือถือ) =====
+function toggleNav(force) {
+  const open = document.getElementById('navbar').classList.toggle('open', force);
+  const btn = document.getElementById('nav-toggle');
+  btn.setAttribute('aria-expanded', open);
+  btn.setAttribute('aria-label', open ? 'ปิดเมนู' : 'เปิดเมนู');
+  btn.firstChild.textContent = open ? '✕' : '☰';
+}
+// เลือกเมนูแล้ว หรือแตะนอก navbar → หุบเมนู
+document.getElementById('nav-links').addEventListener('click', (e) => {
+  if (e.target.closest('a, button')) toggleNav(false);
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#navbar')) toggleNav(false);
+});
+
+// ===== Login / Register =====
 function showModal(type) {
   document.getElementById('modal-overlay').style.display = 'flex';
   document.getElementById('modal-login').style.display = type === 'login' ? 'block' : 'none';
   document.getElementById('modal-register').style.display = type === 'register' ? 'block' : 'none';
+  setTimeout(() => document.getElementById(type === 'login' ? 'login-email' : 'reg-username').focus(), 50);
 }
 
 function closeModal() {
@@ -79,19 +108,24 @@ async function register() {
 
 function showLoggedIn(username) {
   document.getElementById('btn-login-nav').style.display = 'none';
-  document.getElementById('btn-logout').style.display = 'inline';
-  document.getElementById('nav-dashboard').style.display = 'inline';
-  document.getElementById('nav-profile').style.display = 'inline';
+  document.getElementById('btn-logout').style.display = '';
+  document.getElementById('nav-dashboard').style.display = '';
+  document.getElementById('nav-profile').style.display = '';
   updateHero(username);
   ensureSocket();
   refreshBadge();
+}
+
+async function logout() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
 }
 
 // ===== Notifications =====
 const NOTIFY_TEXT = {
   request:  (n) => `📬 <b>${esc(n.from)}</b> ส่งคำขอแลกเปลี่ยนมา`,
   accepted: (n) => `✅ <b>${esc(n.from)}</b> ยอมรับคำขอของคุณแล้ว เริ่มแชทได้เลย`,
-  rejected: (n) => `❌ <b>${esc(n.from)}</b> ปฏิเสธคำขอของคุณ`,
+  rejected: (n) => `<b>${esc(n.from)}</b> ปฏิเสธคำขอของคุณ`,
   message:  (n) => `💬 <b>${esc(n.from)}</b><small>${esc(n.preview)}</small>`
 };
 
@@ -110,7 +144,10 @@ async function refreshBadge() {
   if (!res.ok) return;
   const { pending_requests, unread_messages } = await res.json();
   const total = pending_requests + unread_messages;
-  document.getElementById('nav-badge').textContent = total > 0 ? (total > 99 ? '99+' : total) : '';
+  const label = total > 0 ? (total > 99 ? '99+' : total) : '';
+  // บนมือถือเมนูซ่อนอยู่หลัง ☰ จึงต้องโชว์ตัวเลขที่ปุ่ม ☰ ด้วย
+  document.getElementById('nav-badge').textContent = label;
+  document.getElementById('nav-toggle-badge').textContent = label;
   document.title = (total > 0 ? `(${total}) ` : '') + 'KnowBridge — เชื่อมความรู้ เชื่อมคน';
 }
 
@@ -150,11 +187,7 @@ function ensureSocket() {
   return socket;
 }
 
-async function logout() {
-  await fetch('/api/logout', { method: 'POST' });
-  location.reload();
-}
-
+// ===== Profile =====
 async function loadSkillOptions() {
   const [skillsRes, profileRes] = await Promise.all([
     fetch('/api/skills'),
@@ -163,21 +196,21 @@ async function loadSkillOptions() {
   const skills = await skillsRes.json();
   const profileData = profileRes.ok ? await profileRes.json() : { skills: [] };
   const userSkills = profileData.skills || [];
-
   const currentTeach = userSkills.find(s => s.type === 'teach')?.skill_id;
   const currentLearn = userSkills.find(s => s.type === 'learn')?.skill_id;
 
-  const teachSel = document.getElementById('profile-teach-skill');
-  const learnSel = document.getElementById('profile-learn-skill');
-  teachSel.innerHTML = '<option value="">เลือกทักษะที่คุณสอนได้</option>';
-  learnSel.innerHTML = '<option value="">เลือกทักษะที่คุณอยากเรียน</option>';
+  // จัดกลุ่มตามหมวด ให้เลือกง่ายกว่ารายการยาวรายการเดียว
+  const byCategory = {};
+  skills.forEach(s => (byCategory[s.category] ||= []).push(s));
+  const options = (selectedId, placeholder) =>
+    `<option value="">${placeholder}</option>` +
+    Object.entries(byCategory).map(([cat, list]) => `
+      <optgroup label="${esc(categoryLabel(cat))}">
+        ${list.map(s => `<option value="${s._id}" ${s._id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      </optgroup>`).join('');
 
-  skills.forEach(s => {
-    const isTeach = currentTeach && s._id === currentTeach.toString() ? 'selected' : '';
-    const isLearn = currentLearn && s._id === currentLearn.toString() ? 'selected' : '';
-    teachSel.innerHTML += `<option value="${s._id}" ${isTeach}>[${esc(s.category)}] ${esc(s.name)}</option>`;
-    learnSel.innerHTML += `<option value="${s._id}" ${isLearn}>[${esc(s.category)}] ${esc(s.name)}</option>`;
-  });
+  document.getElementById('profile-teach-skill').innerHTML = options(currentTeach, '— ยังไม่ได้เลือก —');
+  document.getElementById('profile-learn-skill').innerHTML = options(currentLearn, '— ยังไม่ได้เลือก —');
 }
 
 async function loadProfile() {
@@ -185,6 +218,7 @@ async function loadProfile() {
   if (res.status === 401) return;
   const data = await res.json();
   if (data.user) {
+    currentUserId = data.user._id;
     document.getElementById('profile-username').textContent = data.user.username;
     document.getElementById('profile-email').textContent = data.user.email;
     document.getElementById('profile-bio').value = data.user.bio || '';
@@ -196,42 +230,12 @@ async function loadMyReviews(userId) {
   const res = await fetch(`/api/user/${userId}/profile`);
   if (!res.ok) return;
   const data = await res.json();
-  document.getElementById('profile-rating-summary').textContent = ratingText(data.rating.avg, data.rating.count);
+  document.getElementById('profile-rating-summary').innerHTML = ratingHtml(data.rating.avg, data.rating.count);
   document.getElementById('profile-reviews').innerHTML = renderReviews(data.reviews);
 }
 
-// ===== Public Profile =====
-async function showUserProfile(userId) {
-  const body = document.getElementById('user-profile-body');
-  body.innerHTML = '<p style="color:#64748B">กำลังโหลด...</p>';
-  document.getElementById('modal-user').style.display = 'flex';
-  const res = await fetch(`/api/user/${userId}/profile`);
-  if (!res.ok) {
-    body.innerHTML = '<p style="color:#EF4444">ไม่พบผู้ใช้</p>';
-    return;
-  }
-  const { user, skills, rating, reviews } = await res.json();
-  const skillTag = (s) => `
-    <span style="display:inline-block;padding:0.3rem 0.75rem;border-radius:999px;font-size:0.8rem;margin:0 0.35rem 0.35rem 0;
-      background:${s.type === 'teach' ? '#FBF3DD' : '#E6F2FB'};color:${s.type === 'teach' ? '#8A6D1F' : '#1E5A85'}">
-      ${s.type === 'teach' ? '🎓 สอน' : '📚 อยากเรียน'} ${esc(s.skill_name)}
-    </span>`;
-  body.innerHTML = `
-    <h2>👤 ${esc(user.username)}</h2>
-    <p style="color:#F59E0B;font-size:0.95rem;margin-bottom:0.75rem">${ratingText(rating.avg, rating.count)}</p>
-    <p style="color:#475569;margin-bottom:1rem">${esc(user.bio || 'ยังไม่มีคำอธิบาย')}</p>
-    <div style="margin-bottom:1rem">${skills.map(skillTag).join('') || '<span style="color:#94A3B8;font-size:0.85rem">ยังไม่ได้ระบุทักษะ</span>'}</div>
-    <button class="btn-gold" style="width:100%;margin-bottom:1.25rem" onclick="sendRequest('${esc(user._id)}')">ขอแลกเปลี่ยน</button>
-    <h3 style="font-size:1rem;font-weight:700;color:#0B1628;margin-bottom:0.75rem">รีวิว (${reviews.length})</h3>
-    ${renderReviews(reviews)}
-  `;
-}
-
-function closeUserProfile() {
-  document.getElementById('modal-user').style.display = 'none';
-}
-
 async function showProfile() {
+  document.getElementById('profile-msg').textContent = '';
   document.getElementById('modal-profile').style.display = 'flex';
   await loadSkillOptions();
   await loadProfile();
@@ -256,40 +260,110 @@ async function saveProfile() {
   });
   const data = await res.json();
   if (data.success) {
-    document.getElementById('profile-msg').textContent = '✅ บันทึกสำเร็จ!';
-    setTimeout(() => document.getElementById('profile-msg').textContent = '', 2000);
     closeProfile();
+    showToast('✅ บันทึกโปรไฟล์แล้ว');
+    updateHero(document.getElementById('profile-username').textContent);
     searchSkills();
+  } else {
+    const msg = document.getElementById('profile-msg');
+    msg.textContent = 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง';
+    msg.className = 'form-msg error-msg';
   }
 }
 
-async function searchSkills() {
-  const skill = document.getElementById('search-input').value;
-  const category = document.getElementById('category-filter').value;
+// ===== Public Profile =====
+async function showUserProfile(userId) {
+  const body = document.getElementById('user-profile-body');
+  body.innerHTML = '<p class="muted">กำลังโหลด...</p>';
+  document.getElementById('modal-user').style.display = 'flex';
+  const res = await fetch(`/api/user/${userId}/profile`);
+  if (!res.ok) {
+    body.innerHTML = '<p class="error-msg">ไม่พบผู้ใช้</p>';
+    return;
+  }
+  const { user, skills, rating, reviews } = await res.json();
+  const skillTag = (s) => `
+    <span class="skill-pill ${s.type}">${s.type === 'teach' ? 'สอน' : 'อยากเรียน'} · <b>${esc(s.skill_name)}</b></span>`;
+  const isMe = user._id === currentUserId;
+  body.innerHTML = `
+    <div class="profile-head">
+      ${avatar(user.username, 'lg')}
+      <div>
+        <h2>${esc(user.username)}</h2>
+        <p class="rating">${ratingHtml(rating.avg, rating.count)}</p>
+      </div>
+    </div>
+    <p class="profile-bio">${esc(user.bio || 'ยังไม่ได้เขียนแนะนำตัว')}</p>
+    <div class="skill-list">${skills.map(skillTag).join('') || '<span class="muted">ยังไม่ได้ระบุทักษะ</span>'}</div>
+    ${isMe ? '' : `<button class="btn btn-primary btn-block" onclick="sendRequest('${esc(user._id)}')">ขอแลกเปลี่ยน</button>`}
+    <hr class="divider" />
+    <h3 class="subheading">รีวิว (${reviews.length})</h3>
+    ${renderReviews(reviews)}
+  `;
+}
+
+function closeUserProfile() {
+  document.getElementById('modal-user').style.display = 'none';
+}
+
+// ===== Search =====
+let searchTimer = null;
+
+function currentCategory() {
+  return document.querySelector('#category-chips .chip.active')?.dataset.cat || '';
+}
+
+async function searchSkills(scrollToResults = false) {
+  const skill = document.getElementById('search-input').value.trim();
+  const category = currentCategory();
   const params = new URLSearchParams();
   if (skill) params.append('skill', skill);
   if (category) params.append('category', category);
   const res = await fetch(`/api/search?${params}`);
   const results = await res.json();
   const container = document.getElementById('search-results');
+  document.getElementById('result-count').textContent = results.length ? `${results.length} คน` : '';
+
   if (results.length === 0) {
-    container.innerHTML = '<p style="color:#64748B;margin-top:1rem">ไม่พบผู้ใช้ที่ตรงกัน</p>';
-    return;
+    container.innerHTML = `
+      <div class="empty">
+        <b>ไม่พบผู้สอนที่ตรงกัน</b>
+        ลองค้นหาด้วยคำอื่น หรือเลือกหมวด "ทั้งหมด"
+      </div>`;
+  } else {
+    container.innerHTML = results.map(user => `
+      <article class="person-card">
+        <div class="person" onclick="showUserProfile('${esc(user.id)}')" title="ดูโปรไฟล์และรีวิว">
+          ${avatar(user.username)}
+          <div>
+            <h3>${esc(user.username)}</h3>
+            <p class="rating">${ratingHtml(user.avg_rating, user.review_count)}</p>
+          </div>
+        </div>
+        <p class="teaches"><span class="tag">${esc(categoryLabel(user.category))}</span>สอน <b>${esc(user.skill_name)}</b></p>
+        ${user.bio ? `<p class="bio">${esc(user.bio)}</p>` : ''}
+        <div class="card-actions">
+          <button class="btn btn-outline btn-sm" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
+          <button class="btn btn-primary btn-sm" onclick="sendRequest('${esc(user.id)}')">ขอแลกเปลี่ยน</button>
+        </div>
+      </article>
+    `).join('');
   }
-  container.innerHTML = results.map(user => `
-    <div class="card">
-      <span class="badge">${esc(user.category)}</span>
-      <h3 style="cursor:pointer" onclick="showUserProfile('${esc(user.id)}')" title="ดูโปรไฟล์และรีวิว">👤 ${esc(user.username)}</h3>
-      <p style="color:#F59E0B;font-size:0.85rem;margin:0.25rem 0">${ratingText(user.avg_rating, user.review_count)}</p>
-      <p><strong>สอน:</strong> ${esc(user.skill_name)}</p>
-      <p style="margin-top:0.5rem">${esc(user.bio || 'ยังไม่มีคำอธิบาย')}</p>
-      <div style="display:flex;gap:0.5rem;margin-top:1rem">
-        <button class="btn-outline" style="flex:1;padding:0.6rem 0.5rem;white-space:nowrap" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
-        <button class="btn-gold" style="flex:1;padding:0.6rem 0.5rem;font-size:0.9rem;white-space:nowrap" onclick="sendRequest('${esc(user.id)}')">ขอแลกเปลี่ยน</button>
-      </div>
-    </div>
-  `).join('');
+  if (scrollToResults) document.getElementById('search').scrollIntoView({ behavior: 'smooth' });
 }
+
+// ค้นหาทันทีที่พิมพ์ (หน่วงเล็กน้อยไม่ให้ยิง API ทุกตัวอักษร)
+document.getElementById('search-input').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => searchSkills(), 300);
+});
+
+document.getElementById('category-chips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  document.querySelectorAll('#category-chips .chip').forEach(c => c.classList.toggle('active', c === chip));
+  searchSkills();
+});
 
 async function sendRequest(receiverId) {
   const res = await fetch('/api/exchange/request', {
@@ -303,8 +377,8 @@ async function sendRequest(receiverId) {
     return;
   }
   const data = await res.json();
-  if (data.success) alert('ส่งคำขอเรียบร้อยแล้ว! 🎉 ดูสถานะได้ที่ Dashboard');
-  else alert(data.error || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง');
+  if (data.success) showToast('📬 ส่งคำขอแล้ว — ดูสถานะได้ที่ <b>คำขอของฉัน</b>', showDashboard);
+  else showToast(esc(data.error || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง'));
 }
 
 async function checkSession() {
@@ -312,68 +386,67 @@ async function checkSession() {
   if (res.ok) {
     const data = await res.json();
     if (data.user) {
+      currentUserId = data.user._id;
       showLoggedIn(data.user.username);
       document.getElementById('profile-username').textContent = data.user.username;
       document.getElementById('profile-email').textContent = data.user.email;
       document.getElementById('profile-bio').value = data.user.bio || '';
-      updateHero(data.user.username);
     }
   }
 }
 
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    const overlay = document.getElementById('modal-overlay');
-    const loginModal = document.getElementById('modal-login');
-    const registerModal = document.getElementById('modal-register');
-    if (overlay && overlay.style.display !== 'none') {
-      if (loginModal && loginModal.style.display !== 'none') {
-        login();
-      } else if (registerModal && registerModal.style.display !== 'none') {
-        register();
-      }
-    }
-  }
-});
-
-// ===== Dashboard =====
+// ===== Dashboard (คำขอของฉัน) =====
 let dashboardRequests = {};
+let dashboardTab = 'received';
 
-const BTN_DELETE = (id) => `<button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem;border-color:#EF4444;color:#EF4444" onclick="deleteRequest('${id}')">🗑️ ลบ</button>`;
+const STATUS_LABEL = {
+  pending:  (isReceived) => isReceived ? 'รอคุณตอบ' : 'รอตอบรับ',
+  accepted: () => 'ยอมรับแล้ว',
+  rejected: (isReceived) => isReceived ? 'ปฏิเสธแล้ว' : 'ถูกปฏิเสธ'
+};
 
 function renderRequestCard(r, isReceived) {
   const id = esc(r._id);
+  const del = `<button class="btn btn-danger btn-sm" onclick="deleteRequest('${id}')">ลบ</button>`;
   let actions;
   if (r.status === 'pending') {
     actions = isReceived ? `
-      <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${id}','accepted')">✅ ยอมรับ</button>
-      <button class="btn-outline" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="respondRequest('${id}','rejected')">❌ ปฏิเสธ</button>
-    ` : `
-      <span style="color:#F59E0B;font-weight:600;font-size:0.85rem">⏳ รอการตอบรับ</span>
-      ${BTN_DELETE(id)}
-    `;
+      <button class="btn btn-primary btn-sm" onclick="respondRequest('${id}','accepted')">ยอมรับ</button>
+      <button class="btn btn-outline btn-sm" onclick="respondRequest('${id}','rejected')">ปฏิเสธ</button>
+    ` : `<span class="spacer"></span>${del}`;
   } else if (r.status === 'accepted') {
     actions = `
-      <span style="color:#10B981;font-weight:600;font-size:0.85rem">✅ ยอมรับแล้ว</span>
-      <button class="btn-gold" style="padding:0.4rem 1rem;font-size:0.85rem" onclick="openChat('${id}')">💬 แชท${r.unread ? `<span class="nav-badge">${r.unread}</span>` : ''}</button>
+      <button class="btn btn-primary btn-sm" onclick="openChat('${id}')">แชท${r.unread ? `<span class="nav-badge">${r.unread}</span>` : ''}</button>
       ${r.reviewed
-        ? '<span style="color:#94A3B8;font-size:0.8rem">⭐ รีวิวแล้ว</span>'
-        : `<button class="btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8rem" onclick="openRating('${id}')">⭐ ให้คะแนน</button>`}
-      ${BTN_DELETE(id)}
+        ? '<span class="done-note">★ ให้คะแนนแล้ว</span>'
+        : `<button class="btn btn-ghost btn-sm" onclick="openRating('${id}')">ให้คะแนน</button>`}
+      <span class="spacer"></span>${del}
     `;
   } else {
-    actions = `
-      <span style="color:#EF4444;font-weight:600;font-size:0.85rem">❌ ${isReceived ? 'ปฏิเสธแล้ว' : 'ถูกปฏิเสธ'}</span>
-      ${BTN_DELETE(id)}
-    `;
+    actions = `<span class="spacer"></span>${del}`;
   }
   return `
-    <div style="background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:0.75rem">
-      <p style="font-weight:700;color:#0B1628;cursor:pointer" onclick="showUserProfile('${esc(r.other_user_id)}')">👤 ${esc(r.other_username)}</p>
-      <p style="font-size:0.85rem;color:#64748B;margin:0.25rem 0">${esc(r.message || 'ไม่มีข้อความ')}</p>
-      <div style="display:flex;gap:0.5rem;margin-top:0.75rem;align-items:center;flex-wrap:wrap">${actions}</div>
+    <div class="request">
+      <div class="request-top">
+        <div class="person" onclick="showUserProfile('${esc(r.other_user_id)}')">
+          ${avatar(r.other_username)}
+          <div style="min-width:0">
+            <h3>${esc(r.other_username)}</h3>
+            <p class="request-msg">${esc(r.message || 'ไม่มีข้อความ')}</p>
+          </div>
+        </div>
+        <span class="status ${r.status}">${STATUS_LABEL[r.status]?.(isReceived) || esc(r.status)}</span>
+      </div>
+      <div class="request-actions">${actions}</div>
     </div>
   `;
+}
+
+function switchDashTab(tab) {
+  dashboardTab = tab;
+  document.querySelectorAll('#modal-dashboard .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('dashboard-received').hidden = tab !== 'received';
+  document.getElementById('dashboard-sent').hidden = tab !== 'sent';
 }
 
 async function showDashboard() {
@@ -384,12 +457,16 @@ async function showDashboard() {
   dashboardRequests = {};
   [...data.received, ...data.sent].forEach(r => { dashboardRequests[r._id] = r; });
 
+  const empty = (text) => `<div class="empty"><b>${text}</b>ลองค้นหาผู้สอนจากหน้าแรก แล้วกด "ขอแลกเปลี่ยน"</div>`;
   document.getElementById('dashboard-received').innerHTML = data.received.length
     ? data.received.map(r => renderRequestCard(r, true)).join('')
-    : '<p style="color:#64748B;font-size:0.88rem">ยังไม่มีคำขอ</p>';
+    : empty('ยังไม่มีใครส่งคำขอมา');
   document.getElementById('dashboard-sent').innerHTML = data.sent.length
     ? data.sent.map(r => renderRequestCard(r, false)).join('')
-    : '<p style="color:#64748B;font-size:0.88rem">ยังไม่ได้ส่งคำขอ</p>';
+    : empty('คุณยังไม่ได้ส่งคำขอ');
+  document.getElementById('count-received').textContent = data.received.length || '';
+  document.getElementById('count-sent').textContent = data.sent.length || '';
+  switchDashTab(dashboardTab);
   // ตอบรับ/ปฏิเสธ/ลบ/ปิดแชท ล้วนกลับมาที่นี่ — อัปเดต badge ให้ตรงทุกครั้ง
   refreshBadge();
 }
@@ -408,7 +485,7 @@ async function respondRequest(requestId, status) {
 }
 
 async function deleteRequest(requestId) {
-  if (!confirm('ลบคำขอนี้ออกจาก Dashboard?')) return;
+  if (!confirm('ลบคำขอนี้?')) return;
   await fetch(`/api/exchange/request/${requestId}`, { method: 'DELETE' });
   showDashboard();
 }
@@ -427,21 +504,17 @@ async function openChat(requestId) {
     if (profileRes.ok) currentUserId = (await profileRes.json()).user?._id;
   }
 
-  const title = document.getElementById('chat-title');
-  title.innerHTML = `💬 แชทกับ ${esc(req?.other_username || '')}`;
-  if (req && !req.reviewed) {
-    title.innerHTML += `
-      <button class="btn-outline" style="margin-left:1rem;padding:0.3rem 0.75rem;font-size:0.8rem"
-        onclick="openRating('${esc(requestId)}')">⭐ ให้คะแนน</button>`;
-  }
+  const name = req?.other_username || '';
+  document.getElementById('chat-title').innerHTML = `${avatar(name)}<h3>${esc(name)}</h3>`;
+  const rateBtn = document.getElementById('chat-rate-btn');
+  rateBtn.hidden = !req || req.reviewed;
+  rateBtn.onclick = () => openRating(requestId);
 
   document.getElementById('modal-chat').style.display = 'flex';
   document.getElementById('modal-dashboard').style.display = 'none';
 
   const chatInput = document.getElementById('chat-input');
   chatInput.value = '';
-  chatInput.disabled = false;
-  chatInput.onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
   setTimeout(() => chatInput.focus(), 150);
 
   ensureSocket().emit('joinRoom', requestId);
@@ -452,6 +525,7 @@ async function openChat(requestId) {
     // server บันทึกว่าอ่านแล้วตอนโหลดประวัติ
     const res = await fetch(`/api/chat/${requestId}`);
     const messages = await res.json();
+    if (messages.length === 0) container.innerHTML = '<p class="chat-empty">ยังไม่มีข้อความ — ทักทายกันได้เลย 👋</p>';
     messages.forEach(msg => appendMessage(msg));
     if (req) req.unread = 0;
     refreshBadge();
@@ -462,16 +536,13 @@ async function openChat(requestId) {
 
 function appendMessage(msg) {
   const container = document.getElementById('chat-messages');
+  container.querySelector('.chat-empty')?.remove();
   const isMine = msg.sender_id?.toString() === currentUserId?.toString();
   const div = document.createElement('div');
-  div.style.cssText = `display:flex;flex-direction:column;align-items:${isMine ? 'flex-end' : 'flex-start'}`;
+  div.className = 'msg' + (isMine ? ' mine' : '');
   div.innerHTML = `
-    <span style="font-size:0.72rem;color:#94A3B8;margin-bottom:0.2rem">${esc(msg.sender_name)}</span>
-    <div style="background:${isMine ? '#C9A84C' : '#fff'};color:${isMine ? '#0B1628' : '#1E293B'};
-      padding:0.6rem 1rem;border-radius:${isMine ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};
-      max-width:75%;font-size:0.9rem;box-shadow:0 1px 4px rgba(0,0,0,0.08);word-break:break-word">
-      ${esc(msg.text)}
-    </div>
+    ${isMine ? '' : `<span class="msg-name">${esc(msg.sender_name)}</span>`}
+    <div class="msg-bubble">${esc(msg.text)}</div>
   `;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
@@ -492,6 +563,7 @@ function closeChat() {
   showDashboard();
 }
 
+// ===== Hero หลัง login =====
 async function updateHero(username) {
   const res = await fetch('/api/profile');
   if (!res.ok) return;
@@ -499,33 +571,16 @@ async function updateHero(username) {
   const teach = data.skills?.find(s => s.type === 'teach');
   const learn = data.skills?.find(s => s.type === 'learn');
 
-  const heroContent = document.querySelector('.hero-content');
-  if (!heroContent) return;
+  const pill = (skill, type, label, addText) => skill
+    ? `<span class="skill-pill ${type}">${label} · <b>${esc(skill.skill_name)}</b></span>`
+    : `<button class="skill-pill add" onclick="showProfile()">+ ${addText}</button>`;
 
-  heroContent.innerHTML = `
-    <p class="hero-sub animate-up">เข้าสู่ระบบสำเร็จ</p>
-    <h1 class="animate-up delay-1" style="font-size:2.8rem">
-      ยินดีต้อนรับเข้าสู่<br>
-      สะพานแห่งการแบ่งปัน<br>
-      <span class="gold-text">${esc(username)}</span>
-    </h1>
-    <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
-      ${teach ? `<div style="background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.3);border-radius:12px;padding:0.85rem 1.25rem">
-        <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);letter-spacing:1px;text-transform:uppercase;margin-bottom:0.3rem">🎓 ฉันสอนได้</div>
-        <div style="color:var(--gold-light);font-weight:700;font-size:1rem">${esc(teach.skill_name)}</div>
-      </div>` : `<div style="background:rgba(255,255,255,0.05);border:1px dashed rgba(201,168,76,0.3);border-radius:12px;padding:0.85rem 1.25rem;cursor:pointer" onclick="showProfile()">
-        <div style="color:rgba(255,255,255,0.4);font-size:0.88rem">+ เพิ่มทักษะที่สอนได้</div>
-      </div>`}
-      ${learn ? `<div style="background:rgba(99,179,237,0.08);border:1px solid rgba(99,179,237,0.25);border-radius:12px;padding:0.85rem 1.25rem">
-        <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);letter-spacing:1px;text-transform:uppercase;margin-bottom:0.3rem">📚 ฉันอยากเรียน</div>
-        <div style="color:#90CDF4;font-weight:700;font-size:1rem">${esc(learn.skill_name)}</div>
-      </div>` : `<div style="background:rgba(255,255,255,0.05);border:1px dashed rgba(99,179,237,0.25);border-radius:12px;padding:0.85rem 1.25rem;cursor:pointer" onclick="showProfile()">
-        <div style="color:rgba(255,255,255,0.4);font-size:0.88rem">+ เพิ่มทักษะที่อยากเรียน</div>
-      </div>`}
-    </div>
-    <div class="hero-btns animate-up delay-3">
-      <button class="btn-gold" onclick="showDashboard()">📬 Dashboard</button>
-      <button class="btn-ghost" onclick="document.getElementById('search').scrollIntoView({behavior:'smooth'})">ค้นหาทักษะ</button>
+  document.getElementById('hero-greeting').innerHTML = `
+    <p class="eyebrow">สวัสดี ${esc(username)} 👋</p>
+    <h1>วันนี้อยาก<span class="accent">เรียนอะไร</span>?</h1>
+    <div class="my-skills">
+      ${pill(teach, 'teach', 'ฉันสอน', 'เพิ่มทักษะที่สอนได้')}
+      ${pill(learn, 'learn', 'อยากเรียน', 'เพิ่มทักษะที่อยากเรียน')}
     </div>
   `;
 }
@@ -536,8 +591,8 @@ let ratingRequestId = null;
 
 function selectStar(val) {
   currentRating = val;
-  document.querySelectorAll('.star').forEach(s => {
-    s.style.opacity = parseInt(s.dataset.val) <= val ? '1' : '0.3';
+  document.querySelectorAll('#star-selector .star').forEach(s => {
+    s.classList.toggle('on', parseInt(s.dataset.val) <= val);
   });
 }
 
@@ -545,12 +600,11 @@ async function openRating(requestId) {
   const res = await fetch(`/api/review/check/${requestId}`);
   const data = await res.json();
   if (data.reviewed) {
-    alert('คุณให้คะแนนการแลกเปลี่ยนนี้ไปแล้ว');
+    showToast('คุณให้คะแนนการแลกเปลี่ยนนี้ไปแล้ว');
     return;
   }
   ratingRequestId = requestId;
-  currentRating = 0;
-  document.querySelectorAll('.star').forEach(s => s.style.opacity = '0.3');
+  selectStar(0);
   document.getElementById('rating-comment').value = '';
   document.getElementById('rating-msg').textContent = '';
   document.getElementById('modal-rating').style.display = 'flex';
@@ -561,9 +615,10 @@ function closeRating() {
 }
 
 async function submitRating() {
+  const msg = document.getElementById('rating-msg');
   if (!currentRating) {
-    document.getElementById('rating-msg').textContent = '⚠️ กรุณาเลือกคะแนนก่อน';
-    document.getElementById('rating-msg').style.color = '#EF4444';
+    msg.textContent = 'กรุณาเลือกจำนวนดาวก่อน';
+    msg.className = 'form-msg error-msg';
     return;
   }
   const comment = document.getElementById('rating-comment').value;
@@ -578,18 +633,15 @@ async function submitRating() {
   });
   const data = await res.json();
   if (data.success) {
-    document.getElementById('rating-msg').textContent = '✅ ขอบคุณสำหรับคะแนน!';
-    document.getElementById('rating-msg').style.color = '#10B981';
-    setTimeout(() => {
-      closeRating();
-      // ปิดปุ่มให้คะแนนใน dashboard/แชท หลังรีวิวสำเร็จ
-      if (dashboardRequests[ratingRequestId]) dashboardRequests[ratingRequestId].reviewed = true;
-      if (document.getElementById('modal-dashboard').style.display !== "none") showDashboard();
-      if (ratingRequestId === currentRequestId) document.getElementById('chat-title').querySelector("button")?.remove();
-    }, 1500);
+    closeRating();
+    showToast('⭐ ขอบคุณสำหรับคะแนน!');
+    // ปิดปุ่มให้คะแนนใน dashboard/แชท หลังรีวิวสำเร็จ
+    if (dashboardRequests[ratingRequestId]) dashboardRequests[ratingRequestId].reviewed = true;
+    if (document.getElementById('modal-dashboard').style.display !== 'none') showDashboard();
+    if (ratingRequestId === currentRequestId) document.getElementById('chat-rate-btn').hidden = true;
   } else {
-    document.getElementById('rating-msg').textContent = '❌ ' + (data.error || 'เกิดข้อผิดพลาด');
-    document.getElementById('rating-msg').style.color = '#EF4444';
+    msg.textContent = data.error || 'เกิดข้อผิดพลาด';
+    msg.className = 'form-msg error-msg';
   }
 }
 

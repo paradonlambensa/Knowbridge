@@ -4,297 +4,208 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>KnowBridge — เชื่อมความรู้ เชื่อมคน</title>
+  <link rel="icon" href="image/logo-mark.png" />
   <link rel="stylesheet" href="css/style.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous"/>
 </head>
 <body>
 
   <!-- Navbar -->
-  <nav class="navbar" id="navbar">
-    <div class="nav-brand">
-      <img src="image/658902895_836302322308124_868122348353538310_n.png" alt="KnowBridge Logo" style="height:110px;width:60px;" />
-      KnowBridge
+  <header class="navbar" id="navbar">
+    <div class="container navbar-inner">
+      <a class="brand" href="#top">
+        <img src="image/logo-mark.png" alt="" />
+        KnowBridge
+      </a>
+      <button class="nav-toggle" id="nav-toggle" aria-label="เปิดเมนู" aria-controls="nav-links" aria-expanded="false" onclick="toggleNav()">☰<span id="nav-toggle-badge" class="nav-badge"></span></button>
+      <nav class="nav-links" id="nav-links">
+        <a href="#search">ค้นหา</a>
+        <a href="#how">วิธีใช้งาน</a>
+        <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard(); return false;">คำขอของฉัน<span id="nav-badge" class="nav-badge"></span></a>
+        <a href="#" id="nav-profile" style="display:none" onclick="showProfile(); return false;">โปรไฟล์</a>
+        <button id="btn-logout" style="display:none" class="btn btn-outline btn-sm" onclick="logout()">ออกจากระบบ</button>
+        <button id="btn-login-nav" class="btn btn-primary btn-sm" onclick="showModal('login')">เข้าสู่ระบบ</button>
+      </nav>
     </div>
-    <div class="nav-links">
-      <a href="#how">วิธีใช้งาน</a>
-      <a href="#search">ค้นหาทักษะ</a>
-      <a href="#about">เกี่ยวกับเรา</a>
-      <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard()">Dashboard<span id="nav-badge" class="nav-badge"></span></a>
-      <a href="#" id="nav-profile" style="display:none" onclick="showProfile()">โปรไฟล์ของฉัน</a>
-      <button id="btn-logout" style="display:none" onclick="logout()" class="btn-outline">ออกจากระบบ</button>
-      <button id="btn-login-nav" class="btn-outline" onclick="showModal('login')">เข้าสู่ระบบ</button>
-    </div>
-  </nav>
+  </header>
 
-  <!-- Hero -->
-  <section class="hero">
-    <div class="hero-overlay"></div>
-    <div class="hero-content">
-      <p class="hero-sub animate-up">แพลตฟอร์มแลกเปลี่ยนทักษะ</p>
-      <h1 class="animate-up delay-1">
-        เชื่อมความรู้<br>
-        <span class="gold-text">เชื่อมคน</span>
-      </h1>
-      <p class="hero-desc animate-up delay-2">
-        ยกระดับทักษะของคุณ ผ่านสะพานแห่งการแบ่งปัน
-      </p>
-      <div class="hero-btns animate-up delay-3">
-        <button class="btn-gold" onclick="showModal('register')">สมัครสมาชิก</button>
-        <button class="btn-ghost" onclick="document.getElementById('search').scrollIntoView({behavior:'smooth'})">ค้นหาทักษะ</button>
-      </div>
-      <div class="hero-stats animate-up delay-4">
-        <div class="stat"><div class="stat-num">50+</div><div class="stat-label">ผู้ใช้งาน</div></div>
-        <div class="stat-line"></div>
-        <div class="stat"><div class="stat-num">10+</div><div class="stat-label">ทักษะ</div></div>
-        <div class="stat-line"></div>
-        <div class="stat"><div class="stat-num">ฟรี</div></div>
-      </div>
-    </div>
-    <div class="hero-bridge">
-      <div class="demo-card-wrap">
-        <div class="demo-card main-card">
-          <div class="demo-avatar">🧑‍💻</div>
-          <div class="demo-info">
-            <div class="demo-name">นายเอก</div>
-            <div class="demo-tags">
-              <span class="demo-tag teach">สอน Python</span>
-              <span class="demo-tag learn">เรียน English</span>
-            </div>
-          </div>
-          <div class="demo-rating">⭐ 4.9</div>
+  <main id="top">
+    <!-- Hero + ค้นหา -->
+    <section class="hero">
+      <div class="container">
+        <div id="hero-greeting">
+          <p class="eyebrow">แพลตฟอร์มแลกเปลี่ยนทักษะ</p>
+          <h1>เชื่อมความรู้ <span class="accent">เชื่อมคน</span></h1>
+          <p class="lead">สอนสิ่งที่คุณถนัด แลกกับการเรียนสิ่งที่อยากรู้ — ฟรี ไม่มีค่าใช้จ่าย</p>
         </div>
-        <div class="demo-arrow">⇅ กำลังแลกเปลี่ยน</div>
-        <div class="demo-card secondary-card">
-          <div class="demo-avatar">👩‍🎨</div>
-          <div class="demo-info">
-            <div class="demo-name">น.ส.บี</div>
-            <div class="demo-tags">
-              <span class="demo-tag teach">สอน English</span>
-              <span class="demo-tag learn">เรียน Python</span>
-            </div>
-          </div>
-          <div class="demo-rating">⭐ 4.8</div>
-        </div>
-        <div class="demo-stats">
-          <div class="demo-stat"><span>💻</span> IT</div>
-          <div class="demo-stat"><span>🗣️</span> Language</div>
-          <div class="demo-stat"><span>🎨</span> Art</div>
-          <div class="demo-stat"><span>🎵</span> Music</div>
+
+        <form class="search-box" role="search" onsubmit="event.preventDefault(); searchSkills(true)">
+          <input type="search" id="search-input" placeholder="อยากเรียนอะไร? เช่น Python, English, Guitar" aria-label="ค้นหาทักษะ" autocomplete="off" />
+          <button class="btn btn-primary" type="submit">ค้นหา</button>
+        </form>
+        <div class="chips" id="category-chips" aria-label="หมวดหมู่">
+          <button class="chip active" data-cat="">ทั้งหมด</button>
+          <button class="chip" data-cat="IT">ไอที</button>
+          <button class="chip" data-cat="Language">ภาษา</button>
+          <button class="chip" data-cat="Art">ศิลปะ</button>
+          <button class="chip" data-cat="Music">ดนตรี</button>
+          <button class="chip" data-cat="Other">อื่น ๆ</button>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- How it works -->
-  <section class="section" id="how">
-    <div class="section-tag">วิธีใช้งาน</div>
-    <h2 class="section-heading">เริ่มต้นง่ายใน 3 ขั้นตอน</h2>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">01</div>
-        <div class="step-icon">📝</div>
-        <h3>สมัครสมาชิก</h3>
-        <p>สร้างโปรไฟล์และระบุทักษะที่คุณมีและอยากเรียนรู้</p>
+    <!-- ผลการค้นหา -->
+    <section class="section" id="search">
+      <div class="container">
+        <div class="section-head">
+          <h2>ผู้สอนทักษะ</h2>
+          <span class="muted" id="result-count"></span>
+        </div>
+        <div id="search-results" class="card-grid"></div>
       </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">02</div>
-        <div class="step-icon">🔍</div>
-        <h3>ค้นหาคู่แลกเปลี่ยน</h3>
-        <p>ค้นหาคนที่มีทักษะที่คุณต้องการและนัดหมายกัน</p>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">03</div>
-        <div class="step-icon">🤝</div>
-        <h3>แลกเปลี่ยนทักษะ</h3>
-        <p>สอนในสิ่งที่รู้ เรียนในสิ่งที่อยากได้ ฟรี 100%</p>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Search -->
-  <section class="section dark-section" id="search">
-    <div class="section-tag light">ค้นหา</div>
-    <h2 class="section-heading light">ค้นหาทักษะที่ต้องการ</h2>
-    <div class="search-bar">
-      <input type="text" id="search-input" placeholder="พิมพ์ทักษะที่ต้องการ เช่น Python, ภาษาอังกฤษ..."/>
-      <select id="category-filter">
-        <option value="">ทุกหมวดหมู่</option>
-        <option value="IT">💻 ไอที</option>
-        <option value="Language">🗣️ ภาษา</option>
-        <option value="Art">🎨 ศิลปะ</option>
-        <option value="Music">🎵 ดนตรี</option>
-        <option value="Other">✨ อื่นๆ</option>
-      </select>
-      <button class="btn-gold" onclick="searchSkills()">ค้นหา</button>
-    </div>
-    <div id="search-results" class="card-grid"></div>
-  </section>
+    <!-- วิธีใช้งาน -->
+    <section class="section section-soft" id="how">
+      <div class="container">
+        <h2>เริ่มต้นง่ายใน 3 ขั้นตอน</h2>
+        <ol class="steps">
+          <li><span class="step-num">1</span><div><h3>สมัครและตั้งโปรไฟล์</h3><p>บอกว่าคุณสอนอะไรได้ และอยากเรียนอะไร</p></div></li>
+          <li><span class="step-num">2</span><div><h3>ค้นหาคู่แลกเปลี่ยน</h3><p>หาคนที่สอนทักษะที่คุณอยากเรียน แล้วส่งคำขอ</p></div></li>
+          <li><span class="step-num">3</span><div><h3>แชทและแลกเปลี่ยน</h3><p>เมื่ออีกฝ่ายตอบรับ นัดเวลาเรียนกันในแชท แล้วให้คะแนนกัน</p></div></li>
+        </ol>
+      </div>
+    </section>
 
-  <!-- About -->
-  <section class="section" id="about">
-    <div class="section-tag">เกี่ยวกับเรา</div>
-    <h2 class="section-heading">ทำไมต้อง KnowBridge?</h2>
-    <div class="about-grid">
-      <div class="about-card">
-        <div class="about-icon">🌐</div>
-        <h3>เข้าถึงได้ทุกคน</h3>
-        <p>ไม่มีค่าใช้จ่าย ทุกคนสามารถเรียนรู้ทักษะใหม่ได้โดยไม่มีข้อจำกัด</p>
+    <!-- จุดเด่น -->
+    <section class="section" id="about">
+      <div class="container">
+        <h2>ทำไมต้อง KnowBridge</h2>
+        <div class="features">
+          <div><div class="feature-icon">🌐</div><h3>ฟรีสำหรับทุกคน</h3><p>ไม่มีค่าเรียน แลกความรู้กันตรง ๆ</p></div>
+          <div><div class="feature-icon">🤝</div><h3>ได้ประโยชน์ทั้งสองฝ่าย</h3><p>ทุกคนเป็นทั้งผู้สอนและผู้เรียน</p></div>
+          <div><div class="feature-icon">⭐</div><h3>มีรีวิวให้ดูก่อน</h3><p>เลือกคู่แลกเปลี่ยนจากคะแนนและความเห็นจริง</p></div>
+          <div><div class="feature-icon">📈</div><h3>เรียนรู้ได้ตลอดชีวิต</h3><p>กล้าลองทักษะใหม่ ๆ ได้ทุกเมื่อ</p></div>
+        </div>
       </div>
-      <div class="about-card">
-        <div class="about-icon">🤲</div>
-        <h3>แลกเปลี่ยนอย่างยุติธรรม</h3>
-        <p>ระบบ Skill Swap ที่ทุกคนได้ประโยชน์ทั้งผู้สอนและผู้เรียน</p>
-      </div>
-      <div class="about-card">
-        <div class="about-icon">⭐</div>
-        <h3>น่าเชื่อถือ</h3>
-        <p>ระบบรีวิวและให้คะแนนหลังการแลกเปลี่ยน สร้างความไว้วางใจในชุมชน</p>
-      </div>
-      <div class="about-card">
-        <div class="about-icon">📈</div>
-        <h3>พัฒนาตัวเองตลอดชีวิต</h3>
-        <p>ส่งเสริม Lifelong Learning ให้ทุกคนกล้าเรียนรู้สิ่งใหม่ๆ</p>
-      </div>
-    </div>
-  </section>
+    </section>
+  </main>
 
-  <!-- Footer -->
   <footer class="footer">
-    <div class="footer-brand">⟢ KnowBridge</div>
-    <p>เชื่อมความรู้ เชื่อมคน — © 2026 KnowBridge</p>
+    <div class="container">
+      <span class="brand"><img src="image/logo-mark.png" alt="" /> KnowBridge</span>
+      <span>เชื่อมความรู้ เชื่อมคน · © 2026</span>
+    </div>
   </footer>
 
-  <!-- Modal Login/Register -->
+  <!-- Modal: เข้าสู่ระบบ / สมัครสมาชิก -->
   <div id="modal-overlay" class="modal-overlay" style="display:none">
-    <div id="modal-login" class="modal">
-      <button class="modal-close" onclick="closeModal()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
-      <h2>เข้าสู่ระบบ</h2>
-      <input type="email" id="login-email" placeholder="Email" />
-      <input type="password" id="login-password" placeholder="รหัสผ่าน" />
-      <button class="btn-gold" onclick="login()">เข้าสู่ระบบ</button>
-      <p class="modal-switch">ยังไม่มีบัญชี? <a href="#" onclick="showModal('register')">สมัครสมาชิก</a></p>
-      <p id="login-error" class="error-msg"></p>
-    </div>
-    <div id="modal-register" class="modal" style="display:none">
-      <button class="modal-close" onclick="closeModal()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
-      <h2>สมัครสมาชิก</h2>
-      <input type="text" id="reg-username" placeholder="ชื่อผู้ใช้" />
-      <input type="email" id="reg-email" placeholder="Email" />
-      <input type="password" id="reg-password" placeholder="รหัสผ่าน" />
-      <button class="btn-gold" onclick="register()">สมัครสมาชิก</button>
-      <p class="modal-switch">มีบัญชีแล้ว? <a href="#" onclick="showModal('login')">เข้าสู่ระบบ</a></p>
-      <p id="reg-error" class="error-msg"></p>
-    </div>
+    <form id="modal-login" class="modal" onsubmit="event.preventDefault(); login()">
+      <div class="modal-header">
+        <h2>เข้าสู่ระบบ</h2>
+        <button type="button" class="icon-btn" onclick="closeModal()" aria-label="ปิด">✕</button>
+      </div>
+      <label class="field"><span>อีเมล</span><input class="input" type="email" id="login-email" autocomplete="email" /></label>
+      <label class="field"><span>รหัสผ่าน</span><input class="input" type="password" id="login-password" autocomplete="current-password" /></label>
+      <button class="btn btn-primary btn-block" type="submit">เข้าสู่ระบบ</button>
+      <p id="login-error" class="form-msg error-msg"></p>
+      <p class="modal-switch">ยังไม่มีบัญชี? <a href="#" onclick="showModal('register'); return false;">สมัครสมาชิก</a></p>
+    </form>
+    <form id="modal-register" class="modal" style="display:none" onsubmit="event.preventDefault(); register()">
+      <div class="modal-header">
+        <h2>สมัครสมาชิก</h2>
+        <button type="button" class="icon-btn" onclick="closeModal()" aria-label="ปิด">✕</button>
+      </div>
+      <label class="field"><span>ชื่อผู้ใช้</span><input class="input" type="text" id="reg-username" autocomplete="username" /></label>
+      <label class="field"><span>อีเมล</span><input class="input" type="email" id="reg-email" autocomplete="email" /></label>
+      <label class="field"><span>รหัสผ่าน</span><input class="input" type="password" id="reg-password" autocomplete="new-password" /></label>
+      <button class="btn btn-primary btn-block" type="submit">สมัครสมาชิก</button>
+      <p id="reg-error" class="form-msg error-msg"></p>
+      <p class="modal-switch">มีบัญชีแล้ว? <a href="#" onclick="showModal('login'); return false;">เข้าสู่ระบบ</a></p>
+    </form>
   </div>
 
-  <!-- Modal Profile -->
+  <!-- Modal: โปรไฟล์ของฉัน -->
   <div id="modal-profile" class="modal-overlay" style="display:none">
-    <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
-      <button class="modal-close" onclick="closeProfile()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
-      <h2>โปรไฟล์ของฉัน</h2>
-      <div style="margin-bottom:1rem">
-        <label style="font-size:0.85rem;font-weight:600;color:#64748B;display:block;margin-bottom:0.4rem">ชื่อผู้ใช้</label>
-        <p id="profile-username" style="font-weight:700;font-size:1.1rem;color:#0B1628"></p>
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>โปรไฟล์ของฉัน</h2>
+        <button class="icon-btn" onclick="closeProfile()" aria-label="ปิด">✕</button>
       </div>
-      <div style="margin-bottom:1rem">
-        <label style="font-size:0.85rem;font-weight:600;color:#64748B;display:block;margin-bottom:0.4rem">Email</label>
-        <p id="profile-email" style="color:#1E293B"></p>
+      <div class="field"><span>ชื่อผู้ใช้</span><p id="profile-username" class="readonly-value"></p></div>
+      <div class="field"><span>อีเมล</span><p id="profile-email" class="readonly-value muted"></p></div>
+      <label class="field"><span>แนะนำตัว</span><textarea class="input" id="profile-bio" rows="3" placeholder="เช่น เรียนปี 2 ชอบเขียนโปรแกรม ว่างเย็นวันธรรมดา"></textarea></label>
+      <label class="field"><span>ฉันสอนได้</span><select class="input" id="profile-teach-skill"></select></label>
+      <label class="field"><span>ฉันอยากเรียน</span><select class="input" id="profile-learn-skill"></select></label>
+      <button class="btn btn-primary btn-block" onclick="saveProfile()">บันทึก</button>
+      <p id="profile-msg" class="form-msg"></p>
+      <hr class="divider" />
+      <div class="section-head" style="margin-bottom:0.25rem">
+        <h3 class="subheading" style="margin:0">รีวิวที่ได้รับ</h3>
+        <span id="profile-rating-summary" class="rating"></span>
       </div>
-      <div style="margin-bottom:1rem">
-        <label style="font-size:0.85rem;font-weight:600;color:#64748B;display:block;margin-bottom:0.4rem">เกี่ยวกับฉัน (Bio)</label>
-        <textarea id="profile-bio" rows="3" placeholder="เขียนแนะนำตัวเองสั้นๆ..."
-          style="width:100%;padding:0.85rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;resize:vertical"></textarea>
-      </div>
-      <div style="margin-bottom:1rem">
-        <label style="font-size:0.85rem;font-weight:600;color:#64748B;display:block;margin-bottom:0.4rem">🎓 ฉันสอนได้</label>
-        <select id="profile-teach-skill"
-          style="width:100%;padding:0.85rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;background:white;color:#1E293B">
-          <option value="">เลือกทักษะที่คุณสอนได้</option>
-        </select>
-      </div>
-      <div style="margin-bottom:1.25rem">
-        <label style="font-size:0.85rem;font-weight:600;color:#64748B;display:block;margin-bottom:0.4rem">📚 ฉันอยากเรียน</label>
-        <select id="profile-learn-skill"
-          style="width:100%;padding:0.85rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;background:white;color:#1E293B">
-          <option value="">เลือกทักษะที่คุณอยากเรียน</option>
-        </select>
-      </div>
-      <button class="btn-gold" style="width:100%" onclick="saveProfile()">บันทึก</button>
-      <p id="profile-msg" style="text-align:center;margin-top:0.75rem;font-size:0.85rem;color:#10B981"></p>
-      <div style="border-top:1px solid #E2E8F0;margin-top:1.25rem;padding-top:1.25rem">
-        <h3 style="font-size:1rem;font-weight:700;color:#0B1628;margin-bottom:0.25rem">⭐ รีวิวที่ฉันได้รับ</h3>
-        <p id="profile-rating-summary" style="color:#F59E0B;font-size:0.9rem;margin-bottom:0.75rem"></p>
-        <div id="profile-reviews"></div>
-      </div>
+      <div id="profile-reviews"></div>
     </div>
   </div>
 
-  <!-- Modal Public Profile -->
+  <!-- Modal: โปรไฟล์ผู้ใช้อื่น -->
   <div id="modal-user" class="modal-overlay" style="display:none">
-    <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
-      <button class="modal-close" onclick="closeUserProfile()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
+    <div class="modal modal-wide">
+      <button class="icon-btn modal-x" onclick="closeUserProfile()" aria-label="ปิด">✕</button>
       <div id="user-profile-body"></div>
     </div>
   </div>
 
-  <!-- Modal Dashboard -->
+  <!-- Modal: คำขอของฉัน -->
   <div id="modal-dashboard" class="modal-overlay" style="display:none">
-    <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto">
-      <button class="modal-close" onclick="closeDashboard()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
-      <h2>Dashboard</h2>
-      <h3 style="font-size:1rem;font-weight:700;color:#0B1628;margin-bottom:0.75rem">📬 คำขอที่ได้รับ</h3>
-      <div id="dashboard-received"></div>
-      <h3 style="font-size:1rem;font-weight:700;color:#0B1628;margin:1.25rem 0 0.75rem">📤 คำขอที่ส่งไป</h3>
-      <div id="dashboard-sent"></div>
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>คำขอของฉัน</h2>
+        <button class="icon-btn" onclick="closeDashboard()" aria-label="ปิด">✕</button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="received" role="tab" onclick="switchDashTab('received')">ได้รับ<span class="count" id="count-received"></span></button>
+        <button class="tab" data-tab="sent" role="tab" onclick="switchDashTab('sent')">ส่งไป<span class="count" id="count-sent"></span></button>
+      </div>
+      <div id="dashboard-received" class="request-list"></div>
+      <div id="dashboard-sent" class="request-list" hidden></div>
     </div>
   </div>
 
-  <!-- Modal Chat -->
+  <!-- Modal: แชท -->
   <div id="modal-chat" class="modal-overlay" style="display:none">
-    <div class="modal" style="max-width:500px;width:90%;display:flex;flex-direction:column;padding:1.5rem;height:85vh">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-shrink:0">
-        <div>
-          <div class="modal-brand">⟢ KnowBridge</div>
-          <h2 id="chat-title" style="font-size:1.1rem;margin:0;color:#0B1628">แชท</h2>
-        </div>
-        <button onclick="closeChat()" style="background:#F1F5F9;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:1rem;color:#64748B">✕</button>
+    <div class="modal chat-modal">
+      <div class="chat-header">
+        <div id="chat-title" class="person"></div>
+        <button id="chat-rate-btn" class="btn btn-ghost btn-sm" hidden>ให้คะแนน</button>
+        <button class="icon-btn" onclick="closeChat()" aria-label="ปิด">✕</button>
       </div>
-
-      <div id="chat-messages" style="flex:1;overflow-y:auto;background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:1rem;display:flex;flex-direction:column;gap:0.5rem;min-height:0"></div>
-
-      <div style="display:flex;gap:0.5rem;flex-shrink:0;align-items:center;width:100%;">
-        <input id="chat-input" type="text" placeholder="พิมพ์ข้อความ..."
-          style="flex:1;min-width:0;width:auto;padding:0.75rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;color:#1E293B;background:#fff;margin-bottom:0;" />
-        <button class="btn-gold" onclick="sendChat()" style="padding:0.75rem 1.25rem;flex-shrink:0;white-space:nowrap;width:auto;">ส่ง</button>
-      </div>
+      <div id="chat-messages"></div>
+      <form class="chat-input-bar" onsubmit="event.preventDefault(); sendChat()">
+        <input id="chat-input" class="input" type="text" placeholder="พิมพ์ข้อความ..." autocomplete="off" />
+        <button class="btn btn-primary" type="submit">ส่ง</button>
+      </form>
     </div>
   </div>
 
-  <!-- Modal Rating -->
+  <!-- Modal: ให้คะแนน -->
   <div id="modal-rating" class="modal-overlay" style="display:none">
-    <div class="modal" style="max-width:420px;text-align:center">
-      <button class="modal-close" onclick="closeRating()">✕</button>
-      <div class="modal-brand">⟢ KnowBridge</div>
-      <h2>⭐ ให้คะแนนการแลกเปลี่ยน</h2>
-      <p style="color:#64748B;font-size:0.9rem;margin-bottom:1.25rem">คุณประทับใจการแลกเปลี่ยนทักษะครั้งนี้แค่ไหน?</p>
-      <div id="star-selector" style="display:flex;justify-content:center;gap:0.5rem;margin-bottom:1.25rem;font-size:2.5rem">
-        <span class="star" data-val="1" onclick="selectStar(1)" style="cursor:pointer;opacity:0.3">⭐</span>
-        <span class="star" data-val="2" onclick="selectStar(2)" style="cursor:pointer;opacity:0.3">⭐</span>
-        <span class="star" data-val="3" onclick="selectStar(3)" style="cursor:pointer;opacity:0.3">⭐</span>
-        <span class="star" data-val="4" onclick="selectStar(4)" style="cursor:pointer;opacity:0.3">⭐</span>
-        <span class="star" data-val="5" onclick="selectStar(5)" style="cursor:pointer;opacity:0.3">⭐</span>
+    <div class="modal" style="text-align:center">
+      <div class="modal-header">
+        <h2>ให้คะแนนการแลกเปลี่ยน</h2>
+        <button class="icon-btn" onclick="closeRating()" aria-label="ปิด">✕</button>
       </div>
-      <textarea id="rating-comment" rows="3" placeholder="ความคิดเห็นเพิ่มเติม (ไม่บังคับ)..."
-        style="width:100%;padding:0.85rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;resize:vertical;margin-bottom:1rem"></textarea>
-      <button class="btn-gold" style="width:100%" onclick="submitRating()">ส่งคะแนน</button>
-      <p id="rating-msg" style="margin-top:0.75rem;font-size:0.85rem;color:#10B981"></p>
+      <p class="modal-sub" style="margin-top:0">ประทับใจการแลกเปลี่ยนครั้งนี้แค่ไหน?</p>
+      <div id="star-selector" class="star-picker">
+        <button class="star" data-val="1" onclick="selectStar(1)" aria-label="1 ดาว">★</button>
+        <button class="star" data-val="2" onclick="selectStar(2)" aria-label="2 ดาว">★</button>
+        <button class="star" data-val="3" onclick="selectStar(3)" aria-label="3 ดาว">★</button>
+        <button class="star" data-val="4" onclick="selectStar(4)" aria-label="4 ดาว">★</button>
+        <button class="star" data-val="5" onclick="selectStar(5)" aria-label="5 ดาว">★</button>
+      </div>
+      <label class="field" style="text-align:left"><span>ความคิดเห็น (ไม่บังคับ)</span><textarea class="input" id="rating-comment" rows="3"></textarea></label>
+      <button class="btn btn-primary btn-block" onclick="submitRating()">ส่งคะแนน</button>
+      <p id="rating-msg" class="form-msg"></p>
     </div>
   </div>
 
