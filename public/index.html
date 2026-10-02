@@ -226,6 +226,20 @@
       </div>
       <button class="btn-gold" style="width:100%" onclick="saveProfile()">บันทึก</button>
       <p id="profile-msg" style="text-align:center;margin-top:0.75rem;font-size:0.85rem;color:#10B981"></p>
+      <div style="border-top:1px solid #E2E8F0;margin-top:1.25rem;padding-top:1.25rem">
+        <h3 style="font-size:1rem;font-weight:700;color:#0B1628;margin-bottom:0.25rem">⭐ รีวิวที่ฉันได้รับ</h3>
+        <p id="profile-rating-summary" style="color:#F59E0B;font-size:0.9rem;margin-bottom:0.75rem"></p>
+        <div id="profile-reviews"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Public Profile -->
+  <div id="modal-user" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
+      <button class="modal-close" onclick="closeUserProfile()">✕</button>
+      <div class="modal-brand">⟢ KnowBridge</div>
+      <div id="user-profile-body"></div>
     </div>
   </div>
 
@@ -255,12 +269,32 @@
 
       <div id="chat-messages" style="flex:1;overflow-y:auto;background:#F4F6F9;border-radius:12px;padding:1rem;margin-bottom:1rem;display:flex;flex-direction:column;gap:0.5rem;min-height:0"></div>
 
-      <!-- ✅ แก้ไข: เพิ่ม margin-bottom:0 และ width:auto ให้ chat-input เพื่อ override .modal input -->
       <div style="display:flex;gap:0.5rem;flex-shrink:0;align-items:center;width:100%;">
         <input id="chat-input" type="text" placeholder="พิมพ์ข้อความ..."
           style="flex:1;min-width:0;width:auto;padding:0.75rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;color:#1E293B;background:#fff;margin-bottom:0;" />
         <button class="btn-gold" onclick="sendChat()" style="padding:0.75rem 1.25rem;flex-shrink:0;white-space:nowrap;width:auto;">ส่ง</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal Rating -->
+  <div id="modal-rating" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:420px;text-align:center">
+      <button class="modal-close" onclick="closeRating()">✕</button>
+      <div class="modal-brand">⟢ KnowBridge</div>
+      <h2>⭐ ให้คะแนนการแลกเปลี่ยน</h2>
+      <p style="color:#64748B;font-size:0.9rem;margin-bottom:1.25rem">คุณประทับใจการแลกเปลี่ยนทักษะครั้งนี้แค่ไหน?</p>
+      <div id="star-selector" style="display:flex;justify-content:center;gap:0.5rem;margin-bottom:1.25rem;font-size:2.5rem">
+        <span class="star" data-val="1" onclick="selectStar(1)" style="cursor:pointer;opacity:0.3">⭐</span>
+        <span class="star" data-val="2" onclick="selectStar(2)" style="cursor:pointer;opacity:0.3">⭐</span>
+        <span class="star" data-val="3" onclick="selectStar(3)" style="cursor:pointer;opacity:0.3">⭐</span>
+        <span class="star" data-val="4" onclick="selectStar(4)" style="cursor:pointer;opacity:0.3">⭐</span>
+        <span class="star" data-val="5" onclick="selectStar(5)" style="cursor:pointer;opacity:0.3">⭐</span>
+      </div>
+      <textarea id="rating-comment" rows="3" placeholder="ความคิดเห็นเพิ่มเติม (ไม่บังคับ)..."
+        style="width:100%;padding:0.85rem 1rem;border:1.5px solid #E2E8F0;border-radius:8px;font-size:0.95rem;font-family:'Sarabun',sans-serif;outline:none;resize:vertical;margin-bottom:1rem"></textarea>
+      <button class="btn-gold" style="width:100%" onclick="submitRating()">ส่งคะแนน</button>
+      <p id="rating-msg" style="margin-top:0.75rem;font-size:0.85rem;color:#10B981"></p>
     </div>
   </div>
 
