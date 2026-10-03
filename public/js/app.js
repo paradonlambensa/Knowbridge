@@ -207,10 +207,11 @@ async function register() {
   if (!/^[\p{L}\p{M}\p{N}_.-]{3,20}$/u.test(username)) return (error.textContent = 'ชื่อผู้ใช้ต้องยาว 3–20 ตัว ใช้ได้เฉพาะตัวอักษร ตัวเลข และ _ . -');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return (error.textContent = 'รูปแบบอีเมลไม่ถูกต้อง');
   if (password.length < 8) return (error.textContent = 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
+  if (!document.getElementById('reg-accept').checked) return (error.textContent = 'กรุณาอ่านและยอมรับนโยบายความเป็นส่วนตัวก่อนสมัคร');
   const res = await fetch('/api/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password })
+    body: JSON.stringify({ username, email, password, accept_privacy: true })
   });
   const data = await res.json();
   if (data.success) {
@@ -265,6 +266,66 @@ document.getElementById('password-form').addEventListener('submit', async (e) =>
   document.getElementById('pw-section').open = false;
   showToast('🔒 เปลี่ยนรหัสผ่านแล้ว' + (data.other_sessions_ended ? `<small>ออกจากระบบเครื่องอื่นให้แล้ว ${data.other_sessions_ended} เครื่อง</small>` : ''));
 });
+
+// ===== ข้อมูลส่วนบุคคล (PDPA) =====
+// ผู้ใช้ที่สมัครก่อนมีนโยบาย หรือนโยบายเปลี่ยนเวอร์ชัน → แถบให้กดรับทราบ
+function updatePrivacyBar(profile) {
+  const outdated = !!profile?.user && !!profile.privacy_current && profile.user.privacy_version !== profile.privacy_current;
+  document.getElementById('privacy-bar').hidden = !outdated;
+}
+
+async function ackPrivacy() {
+  document.getElementById('privacy-bar').hidden = true;
+  await fetch('/api/account/privacy', { method: 'POST' });
+}
+
+// ลิงก์ "ข้อมูลของฉัน" ในหน้านโยบาย → เปิดโปรไฟล์ แล้วเลื่อนไปส่วนข้อมูล
+async function openMyData() {
+  if (!currentUserId) return showModal('login');
+  await showProfile();
+  document.getElementById('my-data').scrollIntoView({ block: 'start' });
+}
+
+document.getElementById('delete-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('delete-msg');
+  const password = document.getElementById('delete-password').value;
+  if (!password) return (msg.textContent = 'กรุณาใส่รหัสผ่านเพื่อยืนยัน');
+  if (!document.getElementById('delete-confirm').checked) return (msg.textContent = 'กรุณาติ๊กยืนยันว่าเข้าใจว่าลบแล้วกู้คืนไม่ได้');
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  const res = await fetch('/api/account/delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
+  });
+  const data = await res.json().catch(() => ({}));
+  btn.disabled = false;
+  if (!data.success) return (msg.textContent = data.error || 'ลบบัญชีไม่สำเร็จ ลองใหม่อีกครั้ง');
+  // โหลดหน้าใหม่ให้สถานะทุกอย่างกลับเป็นยังไม่ login แล้วค่อยบอกผล
+  try { sessionStorage.setItem('kb-deleted', '1'); } catch (err) {}
+  location.href = '/';
+});
+
+function showDeletedNotice() {
+  let deleted = false;
+  try { deleted = sessionStorage.getItem('kb-deleted') === '1'; sessionStorage.removeItem('kb-deleted'); } catch (e) {}
+  if (deleted) showToast('ลบบัญชีและข้อมูลของคุณเรียบร้อยแล้ว<small>ขอบคุณที่ใช้ KnowBridge</small>');
+}
+
+let privacyInfoLoaded = false;
+async function loadPrivacyInfo() {
+  if (privacyInfoLoaded) return;
+  privacyInfoLoaded = true;
+  const info = await fetch('/api/privacy').then(r => r.json()).catch(() => null);
+  if (!info) return;
+  const updated = new Date(info.version + 'T00:00:00');
+  if (!isNaN(updated)) document.getElementById('privacy-updated').textContent = updated.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+  if (info.contact_email) {
+    const a = document.createElement('a');
+    a.href = 'mailto:' + info.contact_email;
+    a.textContent = info.contact_email;
+    document.getElementById('privacy-contact').replaceChildren(a);
+  }
+}
 
 // ===== กระดิ่งแจ้งเตือน (เก็บย้อนหลัง 30 วัน) =====
 let bellItems = [];
@@ -477,8 +538,9 @@ async function loadProfile() {
     document.getElementById('profile-username').textContent = data.user.username;
     document.getElementById('profile-email').textContent = data.user.email;
     document.getElementById('profile-bio').value = data.user.bio || '';
-    loadMyReviews(data.user._id);
-    loadBlockedList();
+    updatePrivacyBar(data);
+    // รอให้รีวิว/รายการบล็อกโหลดเสร็จ ความสูงของโปรไฟล์จะได้นิ่ง (openMyData เลื่อนลงไปส่วนล่างต่อ)
+    await Promise.all([loadMyReviews(data.user._id), loadBlockedList()]);
   }
 }
 
@@ -680,6 +742,7 @@ async function checkSession() {
       document.getElementById('profile-username').textContent = data.user.username;
       document.getElementById('profile-email').textContent = data.user.email;
       document.getElementById('profile-bio').value = data.user.bio || '';
+      updatePrivacyBar(data);
     }
   }
 }
@@ -1673,7 +1736,7 @@ function focusPendingPost() {
   return true;
 }
 
-// ===== สลับหน้า: หน้าแรก ↔ ชุมชน (ใช้ #community ใน URL จะได้กด back/แชร์ลิงก์ได้) =====
+// ===== สลับหน้า: หน้าแรก ↔ ชุมชน ↔ นโยบาย (ใช้ # ใน URL จะได้กด back/แชร์ลิงก์ได้) =====
 function route() {
   if (location.hash.startsWith('#reset=')) {
     resetToken = location.hash.slice('#reset='.length);
@@ -1681,11 +1744,13 @@ function route() {
     document.getElementById('reset-msg').textContent = '';
     showModal('reset');
   }
-  const view = location.hash.startsWith('#community') ? 'community' : 'home';
+  const view = location.hash.startsWith('#community') ? 'community'
+    : location.hash === '#privacy' ? 'privacy' : 'home';
   const changed = view !== currentView;
   currentView = view;
   document.getElementById('view-home').hidden = view !== 'home';
   document.getElementById('view-community').hidden = view !== 'community';
+  document.getElementById('view-privacy').hidden = view !== 'privacy';
   document.querySelectorAll('#nav-links a[data-view="community"]').forEach(a => a.classList.toggle('active', view === 'community'));
   if (view === 'community') {
     if (changed || !feedLoaded) {
@@ -1693,6 +1758,9 @@ function route() {
       window.scrollTo({ top: 0, behavior: 'instant' });
       loadFeed(true);
     }
+  } else if (view === 'privacy') {
+    loadPrivacyInfo();
+    window.scrollTo({ top: 0, behavior: 'instant' });
   } else if (changed) {
     // ลิงก์อย่าง #search ถูกกดตอนหน้าแรกยังซ่อนอยู่ เลยต้องเลื่อนเอง
     const target = location.hash && document.getElementById(location.hash.slice(1));
@@ -1702,6 +1770,7 @@ function route() {
 window.addEventListener('hashchange', route);
 
 renderThemeToggle();
+showDeletedNotice();
 checkSession();
 searchSkills();
 loadStats();

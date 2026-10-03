@@ -171,4 +171,4 @@ async function seedUserSkills() {
 }
 
 const ready = connectDB();
-module.exports = { db, ObjectId, client, dbName, ready, CI };
+module.exports = { db, ObjectId, client, dbName, ready, CI, DEMO_EMAILS };

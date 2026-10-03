@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const { MongoStore } = require('connect-mongo');
-const { db, ObjectId, client, dbName, ready, CI } = require('./database');
+const { db, ObjectId, client, dbName, ready, CI, DEMO_EMAILS } = require('./database');
 const postsRouter = require('./routes/posts');
 const moderationRouter = require('./routes/moderation');
 const accountRouter = require('./routes/account');
@@ -10,6 +10,7 @@ const notificationsRouter = require('./routes/notifications');
 const createModeration = require('./lib/moderation');
 const createNotifier = require('./lib/notifier');
 const { validateAccount } = require('./lib/accountRules');
+const { PRIVACY_VERSION, DELETED_NAME } = require('./lib/accountData');
 const limits = require('./lib/limits');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -129,7 +130,8 @@ async function getReviewsFor(userId) {
     rating: r.rating,
     comment: r.comment,
     created_at: r.created_at,
-    reviewer_name: reviewers.find(u => u._id.equals(r.reviewer_id))?.username || 'ไม่ทราบชื่อ'
+    // คนเขียนลบบัญชีไปแล้ว → รีวิวยังอยู่แต่ไม่ระบุชื่อ
+    reviewer_name: (r.reviewer_id && reviewers.find(u => u._id.equals(r.reviewer_id))?.username) || DELETED_NAME
   }));
 }
 
@@ -148,11 +150,15 @@ app.post('/api/register', limits.register, async (req, res) => {
     return res.status(400).json({ success: false, error: 'กรุณากรอกข้อมูลให้ครบ' });
   const invalid = validateAccount({ username, email, password });
   if (invalid) return res.status(400).json({ success: false, error: invalid });
+  // PDPA: แจ้งนโยบายก่อนเก็บข้อมูล และบันทึกว่ายอมรับเวอร์ชันไหน เมื่อไร
+  if (req.body.accept_privacy !== true)
+    return res.status(400).json({ success: false, error: 'กรุณาอ่านและยอมรับนโยบายความเป็นส่วนตัวก่อนสมัคร' });
   try {
     const existing = await db.users.findOne({ $or: [{ email }, { username }] }, { collation: CI });
     if (existing) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });
     const hashed = bcrypt.hashSync(password, 10);
-    const user = { username, email, password: hashed, bio: '' };
+    const now = new Date();
+    const user = { username, email, password: hashed, bio: '', created_at: now, privacy_version: PRIVACY_VERSION, privacy_accepted_at: now };
     const result = await db.users.insertOne(user);
     startSession(req, { ...user, _id: result.insertedId });
     res.json({ success: true });
@@ -331,7 +337,7 @@ app.get('/api/profile', requireLogin, async (req, res) => {
       return { ...us, skill_id: us.skill_id.toString(), skill_name: skill?.name, category: skill?.category };
     }));
     req.session.isAdmin = moderation.isAdminEmail(user?.email);
-    res.json({ user, skills: skillsWithInfo, is_admin: req.session.isAdmin });
+    res.json({ user, skills: skillsWithInfo, is_admin: req.session.isAdmin, privacy_current: PRIVACY_VERSION });
   } catch (e) {
     res.json({ user: null, skills: [] });
   }
@@ -661,7 +667,7 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // --- Community feed (routes/posts.js) + รายงาน/บล็อก/แอดมิน (routes/moderation.js) ---
-const routeDeps = { db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI };
+const routeDeps = { db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS };
 app.use('/api', postsRouter(routeDeps));
 app.use('/api', moderationRouter(routeDeps));
 app.use('/api', accountRouter(routeDeps));

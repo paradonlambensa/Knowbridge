@@ -56,9 +56,13 @@ const post = (user, p, body) => api(user, p, { method: 'POST', body: JSON.string
 const json = async (resPromise) => (await resPromise).json();
 
 async function loginRaw(email, password) {
-  return fetch(BASE + '/api/login', {
+  const r = await fetch(BASE + '/api/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
   });
+  // express-session บันทึก session ลง MongoDB เสร็จก่อนส่งไบต์สุดท้าย — อ่านให้จบก่อน
+  // ไม่งั้น request ถัดไปที่ยิงทันทีอาจหา session ไม่เจอ
+  await r.arrayBuffer();
+  return r;
 }
 
 async function withProfile(user) {
@@ -71,7 +75,7 @@ async function withProfile(user) {
 async function adminAccount() {
   let r = await fetch(BASE + '/api/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'AdminE2E', email: ADMIN_EMAIL, password: 'test-password' })
+    body: JSON.stringify({ username: 'AdminE2E', email: ADMIN_EMAIL, password: 'test-password', accept_privacy: true })
   });
   if (r.status === 409) r = await loginRaw(ADMIN_EMAIL, 'test-password');
   return withProfile({ username: 'AdminE2E', cookie: r.headers.get('set-cookie')?.split(';')[0] });
@@ -81,7 +85,7 @@ async function register(name) {
   const email = `${name.toLowerCase()}@test.local`;
   const r = await fetch(BASE + '/api/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: name, email, password: 'test-password' })
+    body: JSON.stringify({ username: name, email, password: 'test-password', accept_privacy: true })
   });
   const user = { username: name, cookie: r.headers.get('set-cookie')?.split(';')[0], ...(await r.json()) };
   user.profile = await json(api(user, '/api/profile'));
@@ -121,7 +125,7 @@ async function run() {
   const tryRegister = async (body) => (await fetch(BASE + '/api/register', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   })).json();
-  const okBody = { username: 'Valid_' + tag, email: `valid_${tag}@test.local`, password: 'good-pass-123' };
+  const okBody = { username: 'Valid_' + tag, email: `valid_${tag}@test.local`, password: 'good-pass-123', accept_privacy: true };
   check('สมัคร: รหัสผ่านสั้นกว่า 8 ตัวไม่ได้', !(await tryRegister({ ...okBody, password: 'ab12' })).success);
   check('สมัคร: รหัสผ่านเดาง่ายไม่ได้', !(await tryRegister({ ...okBody, password: '12345678' })).success);
   check('สมัคร: อีเมลผิดรูปแบบไม่ได้', !(await tryRegister({ ...okBody, email: 'not-an-email' })).success);
@@ -480,6 +484,101 @@ async function run() {
     check('ตั้งรหัสใหม่จากลิงก์ได้ และเครื่องที่ login ค้างไว้ถูก logout', j.success && (await api(D2, '/api/profile')).status === 401);
     check('ลิงก์ใช้ซ้ำไม่ได้', (await post(null, '/api/password/reset', { token, password: 'another-pass-1' })).status === 400);
     check('login ด้วยรหัสใหม่ได้', (await loginRaw(dEmail, 'reset-pass-789')).ok);
+  }
+
+  // --- PDPA: นโยบาย / ขอสำเนาข้อมูล / ลบบัญชี ---
+  const privacy = await json(api(null, '/api/privacy'));
+  check('มีเวอร์ชันนโยบายความเป็นส่วนตัว', /^\d{4}-\d{2}-\d{2}$/.test(privacy.version || ''), privacy.version);
+  j = await tryRegister({ ...okBody, accept_privacy: false });
+  check('สมัคร: ไม่ยอมรับนโยบายไม่ได้', !j.success && /นโยบาย/.test(j.error), j.error);
+  check('สมัครแล้วบันทึกว่ายอมรับนโยบายเวอร์ชันไหน เมื่อไร',
+    A.profile.privacy_current === privacy.version && A.profile.user.privacy_version === privacy.version && !!A.profile.user.privacy_accepted_at);
+  check('กดรับทราบนโยบายได้', (await json(post(A, '/api/account/privacy', {}))).success);
+
+  // E มีร่องรอยครบทุกแบบ: ทักษะ โพสต์ ความคิดเห็น/ถูกใจในโพสต์คนอื่น การแลกเปลี่ยนที่เสร็จแล้ว แชท รีวิวสองทาง บล็อก รายงาน
+  const E = await register('Erin_' + tag);
+  const eEmail = E.profile.user.email;
+  await post(E, '/api/profile/update', { teach_skills: [skillId('Chess')], learn_skills: [] });
+  j = await json(post(A, '/api/posts', { text: `โพสต์ของ A ที่ E มาคอมเมนต์ #${feedTag}` }));
+  const aPost2 = j.post._id;
+  await post(E, `/api/posts/${aPost2}/like`, {});
+  await post(E, `/api/posts/${aPost2}/comments`, { text: 'ความคิดเห็นของ E' });
+  j = await json(post(E, '/api/posts', { text: `โพสต์ของ E #${feedTag}` }));
+  const ePostId = j.post._id;
+  await post(B, `/api/posts/${ePostId}/comments`, { text: 'B คอมเมนต์ในโพสต์ของ E' });
+  await post(E, '/api/exchange/request', { receiver_id: B.id, message: 'ขอเรียนด้วย' });
+  const eReq = (await json(api(B, '/api/dashboard'))).received.find(r => r.other_user_id === E.id);
+  await post(B, '/api/exchange/respond', { request_id: eReq._id, status: 'accepted' });
+  const sE = await sio(E);
+  sE.emit('joinRoom', eReq._id);
+  await sleep(500);
+  sE.emit('sendMessage', { requestId: eReq._id, text: 'ข้อความจาก E' });
+  await sleep(600);
+  sE.ws.close();
+  await post(E, `/api/exchange/${eReq._id}/complete`, {});
+  await post(B, `/api/exchange/${eReq._id}/complete`, {});
+  await post(E, '/api/review', { request_id: eReq._id, rating: 4, comment: 'รีวิวจาก E' });
+  await post(B, '/api/review', { request_id: eReq._id, rating: 5, comment: 'รีวิวถึง E' });
+  await post(E, `/api/blocks/${C.id}`, {});
+  await post(E, '/api/reports', { type: 'user', target_id: D.id, reason: 'spam', detail: 'รายงานจาก E' });
+
+  check('ยังไม่ login ดาวน์โหลดข้อมูลไม่ได้ (401)', (await api(null, '/api/account/export')).status === 401);
+  res = await api(E, '/api/account/export');
+  const exp = await res.json();
+  check('ดาวน์โหลดข้อมูลของฉันเป็นไฟล์ JSON', res.status === 200 && /attachment/.test(res.headers.get('content-disposition') || ''));
+  check('ไฟล์มีข้อมูลครบ: บัญชี ทักษะ คำขอ แชท รีวิว โพสต์ ความคิดเห็น ถูกใจ บล็อก รายงาน',
+    exp.account?.email === eEmail && exp.skills.some(x => x.skill === 'Chess') &&
+    exp.exchange_requests.some(r => r.other_user === B.username && r.status === 'completed') &&
+    exp.messages_sent.some(m => m.text === 'ข้อความจาก E') &&
+    exp.reviews_written.some(r => r.about === B.username && r.rating === 4) &&
+    exp.reviews_received.some(r => r.from === B.username && r.rating === 5) &&
+    exp.posts.some(x => x.id === ePostId) && exp.comments.some(c => c.text === 'ความคิดเห็นของ E') &&
+    exp.liked_post_ids.includes(aPost2) && exp.blocked_users.includes(C.username) && exp.reports_filed.length === 1,
+    JSON.stringify(Object.fromEntries(Object.entries(exp).map(([k, v]) => [k, Array.isArray(v) ? v.length : typeof v]))));
+  check('ไฟล์ไม่มีรหัสผ่าน (แม้แต่ hash)', !('password' in exp.account) && !/\$2[aby]\$/.test(JSON.stringify(exp)));
+  const expB = await json(api(B, '/api/account/export'));
+  check('ไฟล์ของ B มีแค่ข้อความแชทที่ B ส่งเอง', !expB.messages_sent.some(m => m.text === 'ข้อความจาก E'));
+
+  const E2 = { cookie: (await loginRaw(eEmail, 'test-password')).headers.get('set-cookie').split(';')[0] };
+  const sE2 = await sio(E2);
+  check('ลบบัญชี: ยังไม่ login ไม่ได้ (401)', (await post(null, '/api/account/delete', { password: 'test-password' })).status === 401);
+  check('ลบบัญชี: รหัสผ่านผิดไม่ได้', (await post(E, '/api/account/delete', { password: 'wrong-password' })).status === 400);
+  j = await json(post(E, '/api/account/delete', { password: 'test-password' }));
+  await sleep(400);
+  check('ลบบัญชีตัวเองได้', j.success && j.deleted?.posts === 1 && j.deleted?.exchange_requests === 1 && j.deleted?.messages === 1, JSON.stringify(j));
+  check('ลบแล้ว: session ทุกเครื่องใช้ไม่ได้ และ socket ถูกตัด',
+    (await api(E, '/api/profile')).status === 401 && (await api(E2, '/api/profile')).status === 401 && sE2.closed);
+  check('ลบแล้ว: login ไม่ได้', (await loginRaw(eEmail, 'test-password')).status === 401);
+  check('ลบแล้ว: โปรไฟล์หายไป และไม่ขึ้นในผลค้นหา',
+    (await api(null, `/api/user/${E.id}/profile`)).status === 404 && !(await json(api(null, '/api/search?skill=Chess'))).some(x => x.id === E.id));
+  feed = await json(api(null, `/api/posts?tag=${feedTag}`));
+  const aPost2After = feed.posts.find(p => p._id === aPost2);
+  check('ลบแล้ว: โพสต์ของ E หายจากฟีด (รวมความคิดเห็นของคนอื่นในโพสต์นั้น)', !feed.posts.some(p => p._id === ePostId));
+  check('ลบแล้ว: ความคิดเห็น/ถูกใจของ E ในโพสต์คนอื่นหายไป ตัวนับถูกต้อง',
+    aPost2After?.comment_count === 0 && aPost2After?.like_count === 0 && (await json(api(null, `/api/posts/${aPost2}/comments`))).length === 0,
+    JSON.stringify(aPost2After));
+  check('ลบแล้ว: คำขอและแชทหายจากฝั่งคู่แลกเปลี่ยน',
+    !(await json(api(B, '/api/dashboard'))).received.some(r => r._id === eReq._id) && (await api(B, '/api/chat/' + eReq._id)).status === 403);
+  const pB2 = await json(api(null, `/api/user/${B.id}/profile`));
+  check('รีวิวที่ E เขียนให้ B ยังอยู่ แต่ไม่ระบุชื่อ (คะแนนของ B ไม่หาย)',
+    pB2.rating.count === 2 && pB2.reviews.some(r => r.comment === 'รีวิวจาก E' && r.reviewer_name === 'ผู้ใช้ที่ลบบัญชีแล้ว'),
+    JSON.stringify(pB2.reviews.map(r => r.reviewer_name)));
+  const fromE = async (u) => (await json(api(u, '/api/notifications/list'))).items.some(n => n.from === E.username);
+  check('ลบแล้ว: แจ้งเตือนที่มาจาก E หายจากกระดิ่งของคนอื่น', !(await fromE(A)) && !(await fromE(B)));
+  if (hasAdmin) {
+    const r = (await json(api(admin, '/api/admin/reports'))).find(x => x.type === 'user' && x.target_id === D.id);
+    check('รายงานที่ E เคยส่งยังอยู่ให้แอดมินตรวจ (ไม่ระบุผู้รายงาน)', r?.details.includes('รายงานจาก E'), JSON.stringify(r));
+    await post(admin, '/api/admin/reports/resolve', { type: 'user', target_id: D.id, action: 'dismiss' });
+  }
+  const E3 = await register('Erin_' + tag);
+  check('ใช้อีเมล/ชื่อเดิมสมัครใหม่ได้ เป็นบัญชีใหม่ที่ไม่มีข้อมูลเก่า',
+    E3.success && E3.id !== E.id && E3.profile.skills.length === 0 && (await json(api(E3, '/api/dashboard'))).sent.length === 0);
+  await post(E3, '/api/account/delete', { password: 'test-password' });
+  const demo = await loginRaw('lxzy@demo.com', 'demo1234');
+  if (demo.ok) {
+    const demoUser = { cookie: demo.headers.get('set-cookie').split(';')[0] };
+    const r = await post(demoUser, '/api/account/delete', { password: 'demo1234' });
+    check('บัญชีทดลองลบไม่ได้', r.status === 403, `${r.status} ${await r.text()}`);
   }
 
   // --- id ไม่ถูกต้อง ---

@@ -1,13 +1,14 @@
-// ===== บัญชี: เปลี่ยนรหัสผ่าน / ลืมรหัสผ่าน / ตั้งรหัสใหม่จากลิงก์ =====
+// ===== บัญชี: เปลี่ยนรหัสผ่าน / ลืมรหัสผ่าน / ตั้งรหัสใหม่จากลิงก์ / ข้อมูลส่วนบุคคล (PDPA) =====
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { sendMail, canSendEmail } = require('../lib/mailer');
 const { validatePassword } = require('../lib/accountRules');
+const { PRIVACY_VERSION, exportUserData, deleteUserData } = require('../lib/accountData');
 
 const RESET_TTL_MINUTES = 30;
 
-module.exports = function accountRouter({ db, ObjectId, requireLogin, requireAdmin, isValidId, limits, CI }) {
+module.exports = function accountRouter({ db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS }) {
   const router = express.Router();
   // เก็บแค่ hash ของ token — ถ้าฐานข้อมูลหลุด ก็เอา token ไปใช้ไม่ได้
   const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -89,6 +90,63 @@ module.exports = function accountRouter({ db, ObjectId, requireLogin, requireAdm
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
+  // ===== ข้อมูลส่วนบุคคล (PDPA) =====
+
+  // เวอร์ชันนโยบาย + ช่องทางติดต่อ สำหรับหน้า #privacy
+  router.get('/privacy', (req, res) => {
+    res.json({ version: PRIVACY_VERSION, contact_email: process.env.CONTACT_EMAIL || null });
+  });
+
+  // ผู้ใช้เดิม (สมัครก่อนมีนโยบาย / นโยบายเปลี่ยน) กด "รับทราบ"
+  router.post('/account/privacy', requireLogin, async (req, res) => {
+    try {
+      await db.users.updateOne(
+        { _id: new ObjectId(req.session.userId) },
+        { $set: { privacy_version: PRIVACY_VERSION, privacy_accepted_at: new Date() } }
+      );
+      res.json({ success: true, version: PRIVACY_VERSION });
+    } catch (e) {
+      res.status(500).json({ success: false });
+    }
+  });
+
+  // สิทธิขอรับสำเนาข้อมูล: ดาวน์โหลดทุกอย่างที่เก็บเกี่ยวกับเราเป็นไฟล์ JSON
+  router.get('/account/export', requireLogin, limits.exportData, async (req, res) => {
+    try {
+      const data = await exportUserData({ db }, new ObjectId(req.session.userId));
+      if (!data) return res.status(404).json({ success: false, error: 'ไม่พบบัญชี' });
+      res.attachment(`knowbridge-my-data-${new Date().toISOString().slice(0, 10)}.json`);
+      res.type('application/json').send(JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error('export error:', e);
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
+  // สิทธิขอให้ลบข้อมูล: ลบบัญชีตัวเอง (ยืนยันด้วยรหัสผ่าน) — ลบจริงทันที กู้คืนไม่ได้
+  router.post('/account/delete', requireLogin, limits.password, async (req, res) => {
+    try {
+      const user = await db.users.findOne({ _id: new ObjectId(req.session.userId) });
+      if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.password))
+        return res.status(400).json({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
+      // บัญชีทดลองใช้ร่วมกันหลายคน ลบแล้วคนอื่นจะเข้าไม่ได้
+      if (DEMO_EMAILS.includes(String(user.email).toLowerCase()))
+        return res.status(403).json({ success: false, error: 'บัญชีทดลองลบไม่ได้' });
+      const deleted = await deleteUserData({ db, ObjectId }, user);
+      const id = user._id.toString();
+      moderation.banned.delete(id);
+      io.in('user:' + id).disconnectSockets(true);
+      await endSessions(id); // ทุกเครื่อง รวมเครื่องนี้
+      req.session.destroy(() => {
+        res.clearCookie('connect.sid');
+        res.json({ success: true, deleted });
+      });
+    } catch (e) {
+      console.error('delete account error:', e);
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง' });
     }
   });
 
