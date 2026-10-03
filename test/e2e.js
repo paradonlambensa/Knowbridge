@@ -9,6 +9,7 @@ const PORT = process.env.TEST_PORT || 3999;
 const BASE = process.env.BASE_URL || `http://localhost:${PORT}`;
 const TEST_DB = process.env.TEST_DB || 'knowbridge_test';
 const ownServer = !process.env.BASE_URL;
+const ADMIN_EMAIL = 'admin-e2e@test.local';
 
 const results = [];
 const check = (name, cond, extra = '') => results.push([cond ? 'PASS' : 'FAIL', name, extra]);
@@ -16,11 +17,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------- server ----------
 let server = null;
-function startServer() {
+// ปิด rate limit ไว้ก่อน (เทสยิง request เยอะ) — ช่วงท้ายเปิดเพื่อเทสตัวมันเอง
+function startServer(extraEnv = {}) {
   return new Promise((resolve, reject) => {
     server = spawn(process.execPath, ['server.js'], {
       cwd: path.join(__dirname, '..'),
-      env: { ...process.env, PORT, MONGODB_DB: TEST_DB },
+      env: { ...process.env, PORT, MONGODB_DB: TEST_DB, RATE_LIMIT: 'off', ADMIN_EMAILS: ADMIN_EMAIL, ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let log = '';
@@ -52,6 +54,28 @@ function api(user, p, opts = {}) {
 }
 const post = (user, p, body) => api(user, p, { method: 'POST', body: JSON.stringify(body) });
 const json = async (resPromise) => (await resPromise).json();
+
+async function loginRaw(email, password) {
+  return fetch(BASE + '/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
+  });
+}
+
+async function withProfile(user) {
+  user.profile = await json(api(user, '/api/profile'));
+  user.id = user.profile.user?._id;
+  return user;
+}
+
+// บัญชีแอดมินอีเมลตายตัว: รอบแรกสมัครใหม่ รอบต่อไป login
+async function adminAccount() {
+  let r = await fetch(BASE + '/api/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'AdminE2E', email: ADMIN_EMAIL, password: 'test-password' })
+  });
+  if (r.status === 409) r = await loginRaw(ADMIN_EMAIL, 'test-password');
+  return withProfile({ username: 'AdminE2E', cookie: r.headers.get('set-cookie')?.split(';')[0] });
+}
 
 async function register(name) {
   const email = `${name.toLowerCase()}@test.local`;
@@ -92,6 +116,20 @@ async function run() {
   const C = await register('Carol_' + tag); // คนนอก
   check('สมัครสมาชิก 3 บัญชี', A.success && B.success && C.success && A.id && B.id && C.id);
   check('/api/profile ไม่ส่ง password hash', A.profile.user && !('password' in A.profile.user));
+
+  // --- กติกาบัญชี ---
+  const tryRegister = async (body) => (await fetch(BASE + '/api/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  })).json();
+  const okBody = { username: 'Valid_' + tag, email: `valid_${tag}@test.local`, password: 'good-pass-123' };
+  check('สมัคร: รหัสผ่านสั้นกว่า 8 ตัวไม่ได้', !(await tryRegister({ ...okBody, password: 'ab12' })).success);
+  check('สมัคร: รหัสผ่านเดาง่ายไม่ได้', !(await tryRegister({ ...okBody, password: '12345678' })).success);
+  check('สมัคร: อีเมลผิดรูปแบบไม่ได้', !(await tryRegister({ ...okBody, email: 'not-an-email' })).success);
+  check('สมัคร: ชื่อผู้ใช้มีช่องว่าง/สั้นเกินไม่ได้', !(await tryRegister({ ...okBody, username: 'a b' })).success);
+  check('สมัคร: อีเมลซ้ำแม้ตัวพิมพ์ต่างกันไม่ได้', !(await tryRegister({ ...okBody, email: A.profile.user.email.toUpperCase() })).success);
+  check('สมัคร: ชื่อซ้ำแม้ตัวพิมพ์ต่างกันไม่ได้', !(await tryRegister({ ...okBody, username: A.username.toUpperCase() })).success);
+  check('login: อีเมลไม่สนตัวพิมพ์เล็ก-ใหญ่', (await loginRaw(A.profile.user.email.toUpperCase(), 'test-password')).ok);
+  check('login: รหัสผิดได้ 401', (await loginRaw(A.profile.user.email, 'wrong-password')).status === 401);
 
   const skills = await json(api(null, '/api/skills'));
   const skillId = (name) => skills.find(s => s.name === name)._id;
@@ -298,6 +336,77 @@ async function run() {
   check('A ลบโพสต์ตัวเองได้ ความคิดเห็นถูกลบตามไปด้วย', j.success && comments.length === 0);
   fA.ws.close(); fB.ws.close();
 
+  // --- รายงาน / บล็อก / แอดมิน ---
+  const D = await register('Dan_' + tag);
+  const admin = await adminAccount();
+  const hasAdmin = admin.profile.is_admin === true;
+  if (ownServer) check('บัญชีที่อยู่ใน ADMIN_EMAILS เป็นแอดมิน', hasAdmin);
+  check('คนทั่วไปเข้า API แอดมินไม่ได้ (403)', (await api(A, '/api/admin/reports')).status === 403);
+
+  j = await json(post(A, '/api/posts', { text: `โพสต์ทดสอบรายงาน #${feedTag}` }));
+  const badPostId = j.post._id;
+  check('รายงานของตัวเองไม่ได้', (await post(A, '/api/reports', { type: 'post', target_id: badPostId, reason: 'spam' })).status === 400);
+  check('เหตุผลรายงานต้องอยู่ในรายการ', (await post(B, '/api/reports', { type: 'post', target_id: badPostId, reason: 'xxx' })).status === 400);
+  j = await json(post(B, '/api/reports', { type: 'post', target_id: badPostId, reason: 'spam' }));
+  const again = await json(post(B, '/api/reports', { type: 'post', target_id: badPostId, reason: 'spam' }));
+  check('รายงานได้ และรายงานซ้ำไม่นับเพิ่ม', j.success && !j.already && again.already);
+  await post(C, '/api/reports', { type: 'post', target_id: badPostId, reason: 'inappropriate' });
+  const inFeed = async (user, id) => (await json(api(user, `/api/posts?tag=${feedTag}`))).posts.find(p => p._id === id);
+  check('รายงาน 2 คนยังไม่ซ่อน', !!(await inFeed(null, badPostId)));
+  await post(D, '/api/reports', { type: 'post', target_id: badPostId, reason: 'spam', detail: 'ขายของ' });
+  check('รายงานครบ 3 คน → ซ่อนจากฟีด (เจ้าของยังเห็นพร้อมสถานะ)',
+    !(await inFeed(null, badPostId)) && (await inFeed(A, badPostId))?.hidden === true);
+  if (hasAdmin) {
+    let reports = await json(api(admin, '/api/admin/reports'));
+    const item = reports.find(x => x.type === 'post' && x.target_id === badPostId);
+    check('แอดมินเห็นรายงานรวมเป็นรายการเดียว พร้อมเหตุผล',
+      item?.count === 3 && item.reasons['สแปม / โฆษณา'] === 2 && item.owner?.username === A.username && item.details.includes('ขายของ'),
+      JSON.stringify(item));
+    check('แอดมินเห็นโพสต์ที่ถูกซ่อน', !!(await inFeed(admin, badPostId)));
+    j = await json(post(admin, '/api/admin/reports/resolve', { type: 'post', target_id: badPostId, action: 'dismiss' }));
+    reports = await json(api(admin, '/api/admin/reports'));
+    check('แอดมินกด "ไม่ผิด" → โพสต์กลับมา รายงานปิด',
+      j.success && !!(await inFeed(null, badPostId)) && !reports.some(x => x.target_id === badPostId));
+    await post(B, '/api/reports', { type: 'post', target_id: badPostId, reason: 'spam' });
+    j = await json(post(admin, '/api/admin/reports/resolve', { type: 'post', target_id: badPostId, action: 'remove' }));
+    check('แอดมินลบโพสต์ที่ถูกรายงานได้', j.success && !(await inFeed(A, badPostId)));
+  }
+
+  j = await json(post(A, '/api/posts', { text: `โพสต์จาก A #${feedTag}` }));
+  const aPostId = j.post._id;
+  j = await json(post(B, `/api/blocks/${A.id}`, {}));
+  check('B บล็อก A', j.success && j.blocked);
+  check('บล็อกแล้ว: ไม่เห็นโพสต์ของอีกฝ่าย', !(await json(api(B, `/api/posts?tag=${feedTag}`))).posts.some(p => p.author_id === A.id));
+  check('บล็อกแล้ว: อีกฝ่ายก็ไม่เห็นโพสต์เรา', !(await json(api(A, `/api/posts?tag=${feedTag}`))).posts.some(p => p.author_id === B.id));
+  check('บล็อกแล้ว: ส่งคำขอหากันไม่ได้', (await post(A, '/api/exchange/request', { receiver_id: B.id })).status === 403);
+  check('บล็อกแล้ว: แสดงความคิดเห็นในโพสต์ของอีกฝ่ายไม่ได้', (await post(B, `/api/posts/${aPostId}/comments`, { text: 'hi' })).status === 403);
+  check('บล็อกแล้ว: ไม่ขึ้นในผลค้นหา', !(await json(api(B, '/api/search'))).some(x => x.username === A.username));
+  check('บล็อกแล้ว: ไม่ขึ้นในคู่แนะนำ', !(await json(api(B, '/api/matches'))).matches.some(x => x.id === A.id));
+  check('บล็อกแล้ว: คนถูกบล็อกเปิดโปรไฟล์คนบล็อกไม่ได้', (await api(A, `/api/user/${B.id}/profile`)).status === 404);
+  check('คนบล็อกยังเปิดโปรไฟล์ได้ พร้อมสถานะบล็อก', (await json(api(B, `/api/user/${A.id}/profile`))).user?.blocked_by_me === true);
+  check('รายการผู้ใช้ที่บล็อก', (await json(api(B, '/api/blocks'))).some(u => u.id === A.id));
+  const [bA, bB] = await Promise.all([sio(A), sio(B)]);
+  [bA, bB].forEach(x => x.emit('joinRoom', reqId));
+  await sleep(600);
+  bB.emit('sendMessage', { requestId: reqId, text: 'ข้อความหลังบล็อก' });
+  await sleep(800);
+  check('บล็อกแล้ว: แชทหากันไม่ได้', bB.of('chatError').length === 1 && bA.of('newMessage').length === 0);
+  [bA, bB].forEach(x => x.ws.close());
+  j = await json(post(B, `/api/blocks/${A.id}`, {}));
+  check('เลิกบล็อกได้ แล้วเห็นโพสต์อีกครั้ง', j.success && !j.blocked && (await json(api(B, `/api/posts?tag=${feedTag}`))).posts.some(p => p.author_id === A.id));
+
+  if (hasAdmin) {
+    const dEmail = D.profile.user.email;
+    j = await json(post(admin, `/api/admin/users/${D.id}/ban`, { banned: true }));
+    check('แอดมินระงับบัญชีได้', j.success && j.banned);
+    check('ถูกระงับแล้ว session เดิมใช้ไม่ได้ทันที', (await api(D, '/api/profile')).status === 401);
+    check('ถูกระงับแล้ว login ไม่ได้', (await loginRaw(dEmail, 'test-password')).status === 403);
+    check('คนทั่วไปเปิดโปรไฟล์คนที่ถูกระงับไม่ได้', (await api(A, `/api/user/${D.id}/profile`)).status === 404);
+    check('ระงับบัญชีตัวเอง/แอดมินไม่ได้', (await post(admin, `/api/admin/users/${admin.id}/ban`, {})).status === 400);
+    j = await json(post(admin, `/api/admin/users/${D.id}/ban`, { banned: false }));
+    check('ปลดระงับแล้ว login ได้อีก', j.success && !j.banned && (await loginRaw(dEmail, 'test-password')).ok);
+  }
+
   // --- id ไม่ถูกต้อง ---
   check('profile id มั่ว → 404', (await api(null, '/api/user/xyz/profile')).status === 404);
   check('ลบด้วย id มั่วไม่พัง', (await json(api(A, '/api/exchange/request/xyz', { method: 'DELETE' }))).success === false);
@@ -305,12 +414,16 @@ async function run() {
   // --- session อยู่รอดหลัง restart ---
   if (ownServer) {
     await stopServer();
-    await startServer();
-    const again = await api(A, '/api/profile');
-    check('restart server แล้วยัง login อยู่ (session เก็บใน MongoDB)', again.status === 200);
+    await startServer({ RATE_LIMIT: 'on', DEMO_ACCOUNTS: 'off' });
+    const stillIn = await api(A, '/api/profile');
+    check('restart server แล้วยัง login อยู่ (session เก็บใน MongoDB)', stillIn.status === 200);
+    check('ปิดบัญชีทดลอง (DEMO_ACCOUNTS=off) แล้ว login ไม่ได้', (await loginRaw('lxzy@demo.com', 'demo1234')).status === 403);
+    let last;
+    for (let i = 0; i < 11; i++) last = await loginRaw(`nobody_${tag}@test.local`, 'wrong-password');
+    check('ใส่รหัสผิดเกิน 10 ครั้ง → ถูกพักชั่วคราว (429)', last.status === 429);
   }
 
-  await Promise.all([A, B, C].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
+  await Promise.all([A, B, C, D].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
   await post(A, '/api/logout', {});
   check('logout แล้ว session ใช้ไม่ได้', (await api(A, '/api/profile')).status === 401);
 }

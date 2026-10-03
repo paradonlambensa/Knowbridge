@@ -28,6 +28,7 @@
         <a href="#how" data-view="home">วิธีใช้งาน</a>
         <a href="#" id="nav-dashboard" style="display:none" onclick="showDashboard(); return false;">คำขอของฉัน<span id="nav-badge" class="nav-badge"></span></a>
         <a href="#" id="nav-profile" style="display:none" onclick="showProfile(); return false;">โปรไฟล์</a>
+        <a href="#" id="nav-admin" style="display:none" onclick="showAdmin(); return false;">แอดมิน<span id="admin-badge" class="nav-badge"></span></a>
         <button id="btn-logout" style="display:none" class="btn btn-outline btn-sm" onclick="logout()">ออกจากระบบ</button>
         <button id="btn-login-nav" class="btn btn-primary btn-sm" onclick="showModal('login')">เข้าสู่ระบบ</button>
       </nav>
@@ -172,9 +173,11 @@
         <h2>สมัครสมาชิก</h2>
         <button type="button" class="icon-btn" onclick="closeModal()" aria-label="ปิด">✕</button>
       </div>
-      <label class="field"><span>ชื่อผู้ใช้</span><input class="input" type="text" id="reg-username" autocomplete="username" /></label>
+      <label class="field"><span>ชื่อผู้ใช้</span><input class="input" type="text" id="reg-username" autocomplete="username" maxlength="20" />
+        <small class="field-hint">3–20 ตัว ใช้ตัวอักษร ตัวเลข และ _ . - ได้</small></label>
       <label class="field"><span>อีเมล</span><input class="input" type="email" id="reg-email" autocomplete="email" /></label>
-      <label class="field"><span>รหัสผ่าน</span><input class="input" type="password" id="reg-password" autocomplete="new-password" /></label>
+      <label class="field"><span>รหัสผ่าน</span><input class="input" type="password" id="reg-password" autocomplete="new-password" />
+        <small class="field-hint">อย่างน้อย 8 ตัวอักษร และไม่ใช่รหัสที่เดาง่ายอย่าง 12345678</small></label>
       <button class="btn btn-primary btn-block" type="submit">สมัครสมาชิก</button>
       <p id="reg-error" class="form-msg error-msg"></p>
       <p class="modal-switch">มีบัญชีแล้ว? <a href="#" onclick="showModal('login'); return false;">เข้าสู่ระบบ</a></p>
@@ -201,6 +204,11 @@
         <span id="profile-rating-summary" class="rating"></span>
       </div>
       <div id="profile-reviews"></div>
+      <div id="blocked-section" hidden>
+        <hr class="divider" />
+        <h3 class="subheading">ผู้ใช้ที่คุณบล็อก</h3>
+        <div id="blocked-list"></div>
+      </div>
     </div>
   </div>
 
@@ -262,6 +270,38 @@
       <label class="field" style="text-align:left"><span>ความคิดเห็น (ไม่บังคับ)</span><textarea class="input" id="rating-comment" rows="3"></textarea></label>
       <button class="btn btn-primary btn-block" onclick="submitRating()">ส่งคะแนน</button>
       <p id="rating-msg" class="form-msg"></p>
+    </div>
+  </div>
+
+  <!-- Modal: รายงาน -->
+  <div id="modal-report" class="modal-overlay" style="display:none">
+    <form class="modal" id="report-form">
+      <div class="modal-header">
+        <h2>รายงาน<span id="report-what"></span></h2>
+        <button type="button" class="icon-btn" onclick="closeReport()" aria-label="ปิด">✕</button>
+      </div>
+      <p class="modal-sub" style="margin-top:0">ทีมงานจะตรวจสอบ และคนที่ถูกรายงานจะไม่รู้ว่าใครรายงาน</p>
+      <div class="reason-list" role="radiogroup" aria-label="เหตุผล">
+        <label class="reason"><input type="radio" name="reason" value="spam" /> สแปม / โฆษณา</label>
+        <label class="reason"><input type="radio" name="reason" value="inappropriate" /> ไม่เหมาะสม / หยาบคาย</label>
+        <label class="reason"><input type="radio" name="reason" value="harassment" /> คุกคาม / กลั่นแกล้ง</label>
+        <label class="reason"><input type="radio" name="reason" value="misinformation" /> ข้อมูลเท็จ</label>
+        <label class="reason"><input type="radio" name="reason" value="other" /> อื่น ๆ</label>
+      </div>
+      <label class="field"><span>รายละเอียดเพิ่มเติม (ไม่บังคับ)</span><textarea class="input" id="report-detail" rows="2" maxlength="300"></textarea></label>
+      <button class="btn btn-primary btn-block" type="submit">ส่งรายงาน</button>
+      <p id="report-msg" class="form-msg error-msg"></p>
+    </form>
+  </div>
+
+  <!-- Modal: แอดมิน -->
+  <div id="modal-admin" class="modal-overlay" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>รายงานที่รอตรวจสอบ</h2>
+        <button class="icon-btn" onclick="closeAdmin()" aria-label="ปิด">✕</button>
+      </div>
+      <div id="admin-list" class="request-list"></div>
     </div>
   </div>
 

@@ -154,13 +154,15 @@ async function login() {
 }
 
 async function register() {
-  const username = document.getElementById('reg-username').value;
-  const email = document.getElementById('reg-email').value;
+  const username = document.getElementById('reg-username').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
-  if (!username || !email || !password) {
-    document.getElementById('reg-error').textContent = 'กรุณากรอกข้อมูลให้ครบ';
-    return;
-  }
+  const error = document.getElementById('reg-error');
+  // เช็กเบื้องต้นก่อนส่ง (server เช็กซ้ำอีกรอบ)
+  if (!username || !email || !password) return (error.textContent = 'กรุณากรอกข้อมูลให้ครบ');
+  if (!/^[\p{L}\p{M}\p{N}_.-]{3,20}$/u.test(username)) return (error.textContent = 'ชื่อผู้ใช้ต้องยาว 3–20 ตัว ใช้ได้เฉพาะตัวอักษร ตัวเลข และ _ . -');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return (error.textContent = 'รูปแบบอีเมลไม่ถูกต้อง');
+  if (password.length < 8) return (error.textContent = 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
   const res = await fetch('/api/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -263,6 +265,7 @@ function ensureSocket() {
   });
   socket.on('notify', handleNotify);
   socket.on('feed:new', onFeedNew);
+  socket.on('chatError', (message) => showToast(esc(message)));
   // หลุดแล้วต่อใหม่ (เช่น server restart) ต้อง join ห้องแชทที่เปิดค้างไว้อีกครั้ง
   socket.on('connect', () => {
     if (currentRequestId) socket.emit('joinRoom', currentRequestId);
@@ -341,10 +344,12 @@ async function loadProfile() {
   const data = await res.json();
   if (data.user) {
     currentUserId = data.user._id;
+    setAdmin(data.is_admin);
     document.getElementById('profile-username').textContent = data.user.username;
     document.getElementById('profile-email').textContent = data.user.email;
     document.getElementById('profile-bio').value = data.user.bio || '';
     loadMyReviews(data.user._id);
+    loadBlockedList();
   }
 }
 
@@ -399,24 +404,36 @@ async function showUserProfile(userId) {
     return;
   }
   const { user, skills, rating, reviews } = await res.json();
+  viewingUser = { id: user._id, username: user.username, blocked: user.blocked_by_me, banned: user.banned };
   const skillTag = (s) => `
     <span class="skill-pill ${s.type}">${s.type === 'teach' ? 'สอน' : 'อยากเรียน'} · <b>${esc(s.skill_name)}</b></span>`;
   const isMe = user._id === currentUserId;
+  const mainAction = isMe ? ''
+    : user.blocked_by_me
+      ? '<div class="blocked-note"><span>คุณบล็อกผู้ใช้นี้อยู่</span><button class="btn btn-ghost btn-sm" onclick="blockViewingUser()">เลิกบล็อก</button></div>'
+      : `<button class="btn btn-primary btn-block" onclick="sendRequest('${esc(user._id)}')">ขอแลกเปลี่ยน</button>`;
+  const footer = isMe || !currentUsername ? '' : `
+    <div class="profile-actions">
+      ${user.blocked_by_me ? '' : '<button class="btn btn-ghost btn-sm" onclick="blockViewingUser()">บล็อก</button>'}
+      <button class="btn btn-ghost btn-sm" onclick="openReport('user', viewingUser.id)">รายงานผู้ใช้</button>
+      ${currentIsAdmin ? `<button class="btn btn-danger btn-sm" onclick="adminBan(viewingUser.id, ${!user.banned})">${user.banned ? 'ปลดระงับบัญชี' : 'ระงับบัญชี'}</button>` : ''}
+    </div>`;
   body.innerHTML = `
     <div class="profile-head">
       ${avatar(user.username, 'lg')}
       <div>
-        <h2>${esc(user.username)}</h2>
+        <h2>${esc(user.username)} ${user.banned ? '<span class="banned-badge">ถูกระงับ</span>' : ''}</h2>
         <p class="rating">${ratingHtml(rating.avg, rating.count)}</p>
       </div>
     </div>
     <p class="profile-bio">${esc(user.bio || 'ยังไม่ได้เขียนแนะนำตัว')}</p>
     <div class="skill-list">${skills.map(skillTag).join('') || '<span class="muted">ยังไม่ได้ระบุทักษะ</span>'}</div>
-    ${isMe ? '' : `<button class="btn btn-primary btn-block" onclick="sendRequest('${esc(user._id)}')">ขอแลกเปลี่ยน</button>`}
+    ${mainAction}
     <div id="user-recent-posts"></div>
     <hr class="divider" />
     <h3 class="subheading">รีวิว (${reviews.length})</h3>
     ${renderReviews(reviews)}
+    ${footer}
   `;
 
   const { posts } = await (await fetch(`/api/posts?author=${encodeURIComponent(userId)}&limit=3`)).json();
@@ -528,6 +545,7 @@ async function checkSession() {
     const data = await res.json();
     if (data.user) {
       currentUserId = data.user._id;
+      setAdmin(data.is_admin);
       showLoggedIn(data.user.username);
       document.getElementById('profile-username').textContent = data.user.username;
       document.getElementById('profile-email').textContent = data.user.email;
@@ -796,6 +814,181 @@ async function submitRating() {
   }
 }
 
+// ===== ดูแลเนื้อหา: เมนู ⋯ / รายงาน / บล็อก / แอดมิน =====
+let currentIsAdmin = false;
+let viewingUser = null;   // ผู้ใช้ที่เปิดโปรไฟล์อยู่ (ปุ่มในโปรไฟล์อ้างถึงตัวนี้ ไม่ฝังชื่อลงใน onclick)
+let reportTarget = null;
+
+function setAdmin(isAdmin) {
+  currentIsAdmin = !!isAdmin;
+  document.getElementById('nav-admin').style.display = currentIsAdmin ? '' : 'none';
+  if (currentIsAdmin) refreshAdminBadge();
+}
+
+function closeMenus(except) {
+  document.querySelectorAll('.post-menu-wrap .menu').forEach(m => {
+    if (m === except) return;
+    m.hidden = true;
+    m.previousElementSibling.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function toggleMenu(btn) {
+  const menu = btn.nextElementSibling;
+  closeMenus(menu);
+  menu.hidden = !menu.hidden;
+  btn.setAttribute('aria-expanded', String(!menu.hidden));
+}
+document.addEventListener('click', (e) => { if (!e.target.closest('.post-menu-wrap')) closeMenus(); });
+
+function openReport(type, id) {
+  if (!currentUsername) return showModal('login');
+  reportTarget = { type, id };
+  document.getElementById('report-what').textContent = { post: 'โพสต์', comment: 'ความคิดเห็น', user: 'ผู้ใช้' }[type];
+  document.getElementById('report-form').reset();
+  document.getElementById('report-msg').textContent = '';
+  document.getElementById('modal-report').style.display = 'flex';
+}
+
+function closeReport() {
+  document.getElementById('modal-report').style.display = 'none';
+}
+
+document.getElementById('report-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const reason = new FormData(e.target).get('reason');
+  if (!reason) return (document.getElementById('report-msg').textContent = 'กรุณาเลือกเหตุผล');
+  const res = await fetch('/api/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: reportTarget.type, target_id: reportTarget.id, reason, detail: document.getElementById('report-detail').value })
+  });
+  const data = await res.json();
+  if (!data.success) return (document.getElementById('report-msg').textContent = data.error || 'ส่งรายงานไม่สำเร็จ');
+  closeReport();
+  showToast(data.already ? 'คุณรายงานเรื่องนี้ไปแล้ว ทีมงานกำลังตรวจสอบ' : '🙏 ขอบคุณที่รายงาน ทีมงานจะตรวจสอบโดยเร็ว');
+});
+
+// บล็อก / เลิกบล็อก — รีเฟรชทุกส่วนที่อาจแสดงคนนี้อยู่
+async function toggleBlock(userId, name, isBlocked = false) {
+  if (!currentUsername) return showModal('login');
+  if (!isBlocked && !confirm(`บล็อก ${name}?\nคุณกับเขาจะไม่เห็นโพสต์ของกันและกัน และส่งคำขอหรือแชทหากันไม่ได้`)) return;
+  const res = await fetch(`/api/blocks/${userId}`, { method: 'POST' });
+  const data = await res.json();
+  if (!data.success) return showToast(esc(data.error || 'ทำรายการไม่สำเร็จ'));
+  showToast(`${data.blocked ? 'บล็อก' : 'เลิกบล็อก'} ${esc(name)} แล้ว`);
+  if (feedLoaded) loadFeed(true);
+  searchSkills();
+  loadMatches();
+  if (document.getElementById('modal-user').style.display !== 'none' && viewingUser?.id === userId) showUserProfile(userId);
+  if (document.getElementById('modal-profile').style.display !== 'none') loadBlockedList();
+}
+
+function blockViewingUser() {
+  toggleBlock(viewingUser.id, viewingUser.username, viewingUser.blocked);
+}
+
+async function loadBlockedList() {
+  const res = await fetch('/api/blocks');
+  if (!res.ok) return;
+  const users = await res.json();
+  document.getElementById('blocked-section').hidden = !users.length;
+  document.getElementById('blocked-list').innerHTML = users.map(u => `
+    <div class="blocked-row">${avatar(u.username)}<span>${esc(u.username)}</span>
+      <button class="btn btn-ghost btn-sm" data-unblock="${esc(u.id)}" data-name="${esc(u.username)}">เลิกบล็อก</button>
+    </div>`).join('');
+}
+
+document.getElementById('blocked-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-unblock]');
+  if (btn) toggleBlock(btn.dataset.unblock, btn.dataset.name, true);
+});
+
+// ===== แอดมิน =====
+const TYPE_LABEL = { post: 'โพสต์', comment: 'ความคิดเห็น', user: 'ผู้ใช้' };
+let adminItems = [];
+
+async function refreshAdminBadge() {
+  const res = await fetch('/api/admin/reports');
+  if (!res.ok) return;
+  adminItems = await res.json();
+  document.getElementById('admin-badge').textContent = adminItems.length || '';
+  return adminItems;
+}
+
+function renderReportItem(r, i) {
+  const owner = r.owner;
+  return `
+    <div class="request" data-i="${i}">
+      <div class="request-top">
+        <span class="status pending">${TYPE_LABEL[r.type]}</span>
+        <div style="flex:1;min-width:0">
+          <b>${esc(owner?.username || 'ไม่ทราบชื่อ')}</b> ${owner?.banned ? '<span class="banned-badge">ถูกระงับ</span>' : ''}
+          <p class="report-preview">${esc(r.preview || '—')}</p>
+        </div>
+      </div>
+      <div class="report-meta">
+        <span class="tag">${r.count} รายงาน</span>
+        ${Object.entries(r.reasons).map(([k, v]) => `<span class="tag">${esc(k)}${v > 1 ? ` ×${v}` : ''}</span>`).join('')}
+        ${r.hidden ? '<span class="tag">ซ่อนอยู่</span>' : ''}
+      </div>
+      ${r.details.length ? `<p class="report-detail">“${r.details.map(esc).join('” · “')}”</p>` : ''}
+      <div class="request-actions">
+        <button class="btn btn-outline btn-sm" data-admin="dismiss">ไม่ผิด</button>
+        ${r.type !== 'user' && r.exists ? '<button class="btn btn-danger btn-sm" data-admin="remove">ลบเนื้อหา</button>' : ''}
+        <span class="spacer"></span>
+        ${owner ? `<button class="btn btn-ghost btn-sm" data-admin="${owner.banned ? 'unban' : 'ban'}">${owner.banned ? 'ปลดระงับ' : 'ระงับบัญชี'}</button>` : ''}
+      </div>
+    </div>`;
+}
+
+async function showAdmin() {
+  const list = document.getElementById('admin-list');
+  list.innerHTML = skeletonRequests(2);
+  document.getElementById('modal-admin').style.display = 'flex';
+  const items = await refreshAdminBadge() || [];
+  list.innerHTML = items.length
+    ? items.map(renderReportItem).join('')
+    : '<div class="empty"><b>ไม่มีรายงานค้างอยู่ 🎉</b>ชุมชนเรียบร้อยดี</div>';
+}
+
+function closeAdmin() {
+  document.getElementById('modal-admin').style.display = 'none';
+}
+
+async function adminBan(userId, banned) {
+  if (!confirm(banned ? 'ระงับบัญชีนี้? เขาจะ login ไม่ได้ และโพสต์ทั้งหมดจะถูกซ่อน' : 'ปลดระงับบัญชีนี้?')) return;
+  const res = await fetch(`/api/admin/users/${userId}/ban`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ banned })
+  });
+  const data = await res.json();
+  if (!data.success) return showToast(esc(data.error || 'ทำรายการไม่สำเร็จ'));
+  showToast(banned ? 'ระงับบัญชีแล้ว' : 'ปลดระงับแล้ว');
+  if (document.getElementById('modal-user').style.display !== 'none') showUserProfile(userId);
+  if (feedLoaded) loadFeed(true);
+  searchSkills();
+}
+
+document.getElementById('admin-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-admin]');
+  if (!btn) return;
+  const r = adminItems[btn.closest('[data-i]').dataset.i];
+  const action = btn.dataset.admin;
+  if (action === 'ban' || action === 'unban') {
+    await adminBan(r.owner.id, action === 'ban');
+  } else {
+    if (action === 'remove' && !confirm(`ลบ${TYPE_LABEL[r.type]}นี้ถาวร?`)) return;
+    const res = await fetch('/api/admin/reports/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: r.type, target_id: r.target_id, action })
+    });
+    if (!res.ok) return showToast('ทำรายการไม่สำเร็จ');
+    showToast(action === 'remove' ? 'ลบเนื้อหาแล้ว' : 'ปิดรายงานแล้ว');
+    if (feedLoaded) loadFeed(true);
+  }
+  showAdmin();
+});
+
 // ===== คู่แลกเปลี่ยนที่แนะนำ =====
 const MATCHES_PREVIEW = 3;
 let matchesById = {};
@@ -918,6 +1111,13 @@ function timeTag(date) {
 
 function renderPost(p) {
   const user = `data-action="profile" data-user="${esc(p.author_id)}"`;
+  const items = p.mine
+    ? ['<button data-action="delete-post" class="danger">ลบโพสต์</button>']
+    : [
+        '<button data-action="report-post">รายงานโพสต์</button>',
+        `<button data-action="block-user" data-user="${esc(p.author_id)}" data-name="${esc(p.author_name)}">บล็อก ${esc(p.author_name)}</button>`,
+        ...(currentIsAdmin ? ['<button data-action="delete-post" class="danger">ลบโพสต์ (แอดมิน)</button>'] : [])
+      ];
   return `
     <article class="post" id="post-${esc(p._id)}" data-id="${esc(p._id)}">
       ${avatar(p.author_name, '', user)}
@@ -925,9 +1125,13 @@ function renderPost(p) {
         <div class="post-meta">
           <span class="post-author" ${user}>${esc(p.author_name)}</span>
           <span>·</span>${timeTag(p.created_at)}
-          ${p.mine ? '<button class="btn btn-danger" data-action="delete-post">ลบ</button>' : ''}
+          <div class="post-menu-wrap">
+            <button class="menu-btn" data-action="menu" aria-label="ตัวเลือกเพิ่มเติม" aria-haspopup="true" aria-expanded="false">⋯</button>
+            <div class="menu" hidden>${items.join('')}</div>
+          </div>
         </div>
         <div class="post-text">${formatPostText(p.text)}</div>
+        ${p.hidden ? '<span class="hidden-note">ถูกซ่อนชั่วคราวเพราะมีผู้รายงาน — รอแอดมินตรวจสอบ</span>' : ''}
         <div class="post-actions">
           <button class="action like ${p.liked ? 'on' : ''}" data-action="like" aria-pressed="${p.liked}" aria-label="ถูกใจ">${ICON_HEART}<span class="n">${p.like_count || ''}</span></button>
           <button class="action" data-action="comments" aria-label="ความคิดเห็น">${ICON_COMMENT}<span class="n">${p.comment_count || ''}</span></button>
@@ -946,7 +1150,8 @@ function renderComment(c) {
         <div class="post-meta">
           <span class="post-author" ${user}>${esc(c.author_name)}</span>
           <span>·</span>${timeTag(c.created_at)}
-          ${c.mine ? '<button class="btn btn-danger" data-action="delete-comment">ลบ</button>' : ''}
+          ${c.mine || currentIsAdmin ? '<button class="btn btn-danger" data-action="delete-comment">ลบ</button>' : ''}
+          ${c.mine ? '' : '<button class="btn btn-ghost" data-action="report-comment">รายงาน</button>'}
         </div>
         <div class="post-text">${formatPostText(c.text)}</div>
       </div>
@@ -1140,6 +1345,7 @@ async function submitComment(postEl, form) {
 }
 
 async function deletePost(postEl) {
+  closeMenus();
   if (!confirm('ลบโพสต์นี้? ความคิดเห็นทั้งหมดจะถูกลบด้วย')) return;
   const res = await fetch(`/api/posts/${postEl.dataset.id}`, { method: 'DELETE' });
   if (!res.ok) return showToast('ลบไม่สำเร็จ');
@@ -1170,6 +1376,10 @@ document.getElementById('feed-list').addEventListener('click', (e) => {
     case 'delete-post': deletePost(postEl); break;
     case 'delete-comment': deleteComment(postEl, el.closest('.comment')); break;
     case 'login': e.preventDefault(); showModal('login'); break;
+    case 'menu': toggleMenu(el); break;
+    case 'report-post': closeMenus(); openReport('post', postEl.dataset.id); break;
+    case 'report-comment': openReport('comment', el.closest('.comment').dataset.comment); break;
+    case 'block-user': closeMenus(); toggleBlock(el.dataset.user, el.dataset.name); break;
   }
 });
 

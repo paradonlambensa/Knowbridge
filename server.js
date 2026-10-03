@@ -2,8 +2,11 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const { MongoStore } = require('connect-mongo');
-const { db, ObjectId, client, dbName, ready } = require('./database');
+const { db, ObjectId, client, dbName, ready, CI } = require('./database');
 const postsRouter = require('./routes/posts');
+const moderationRouter = require('./routes/moderation');
+const createModeration = require('./lib/moderation');
+const limits = require('./lib/limits');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -13,6 +16,11 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
 const SESSION_TTL = 24 * 60 * 60; // วินาที
+const moderation = createModeration({ db, ObjectId });
+ready.then(() => moderation.loadBanned());
+if ((process.env.RENDER || process.env.NODE_ENV === 'production') && !process.env.SESSION_SECRET) {
+  console.warn('⚠️ ยังไม่ได้ตั้ง SESSION_SECRET — ค่าเริ่มต้นอยู่ในโค้ดสาธารณะ ใครก็ปลอม session ได้');
+}
 
 // Render/โฮสต์ส่วนใหญ่อยู่หลัง proxy ที่ทำ HTTPS ให้ — ต้องเชื่อ proxy ถึงจะตั้งคุกกี้ secure ได้
 app.set('trust proxy', 1);
@@ -36,9 +44,19 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 // ให้ socket.io ใช้ session เดียวกับ express เพื่อรู้ว่าใครเป็นคนส่งข้อความ
 io.engine.use(sessionMiddleware);
+app.use('/api', limits.api);
 
 function requireLogin(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'กรุณา Login ก่อน' });
+  // ถูกระงับระหว่างที่ยัง login อยู่ → ตัด session ทิ้งทันที
+  if (moderation.banned.has(req.session.userId)) {
+    return req.session.destroy(() => res.status(401).json({ error: 'บัญชีนี้ถูกระงับการใช้งาน' }));
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session.isAdmin) return res.status(403).json({ success: false, error: 'สำหรับแอดมินเท่านั้น' });
   next();
 }
 
@@ -111,35 +129,63 @@ async function getReviewsFor(userId) {
 }
 
 // --- Auth ---
-app.post('/api/register', async (req, res) => {
-  const { username, email, password } = req.body;
+// กติกาบัญชี — ต้องตรงกับที่บอกผู้ใช้ในหน้าสมัคร (public/index.html)
+const USERNAME_RE = /^[\p{L}\p{M}\p{N}_.-]{3,20}$/u;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WEAK_PASSWORDS = new Set(['12345678', '123456789', '1234567890', 'password', 'password1', 'qwertyui', '11111111', '00000000', 'abcdefgh']);
+
+function validateAccount({ username, email, password }) {
+  if (!USERNAME_RE.test(username)) return 'ชื่อผู้ใช้ต้องยาว 3–20 ตัว ใช้ได้เฉพาะตัวอักษร ตัวเลข และ _ . -';
+  if (email.length > 254 || !EMAIL_RE.test(email)) return 'รูปแบบอีเมลไม่ถูกต้อง';
+  if (password.length < 8) return 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร';
+  if (Buffer.byteLength(password) > 72) return 'รหัสผ่านยาวเกินไป';
+  if (WEAK_PASSWORDS.has(password.toLowerCase()) || /^(.)\1+$/.test(password)) return 'รหัสผ่านนี้เดาง่ายเกินไป ลองตั้งใหม่';
+  return null;
+}
+
+function startSession(req, user) {
+  req.session.userId = user._id.toString();
+  req.session.username = user.username;
+  req.session.isAdmin = moderation.isAdminEmail(user.email);
+}
+
+app.post('/api/register', limits.register, async (req, res) => {
+  const username = String(req.body.username || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
   if (!username || !email || !password)
-    return res.json({ success: false, error: 'กรุณากรอกข้อมูลให้ครบ' });
+    return res.status(400).json({ success: false, error: 'กรุณากรอกข้อมูลให้ครบ' });
+  const invalid = validateAccount({ username, email, password });
+  if (invalid) return res.status(400).json({ success: false, error: invalid });
   try {
-    const existing = await db.users.findOne({ $or: [{ email }, { username }] });
-    if (existing) return res.json({ success: false, error: 'Username หรือ Email ซ้ำ' });
+    const existing = await db.users.findOne({ $or: [{ email }, { username }] }, { collation: CI });
+    if (existing) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });
     const hashed = bcrypt.hashSync(password, 10);
-    const result = await db.users.insertOne({ username, email, password: hashed, bio: '' });
-    req.session.userId = result.insertedId.toString();
-    req.session.username = username;
+    const user = { username, email, password: hashed, bio: '' };
+    const result = await db.users.insertOne(user);
+    startSession(req, { ...user, _id: result.insertedId });
     res.json({ success: true });
   } catch (e) {
+    // สมัครพร้อมกันสองคนด้วยอีเมลเดียวกัน → unique index กันไว้
+    if (e.code === 11000) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });
     console.error('Register error:', e);
-    res.json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
   }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', limits.login, async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await db.users.findOne({ email });
+    const email = String(req.body.email || '').trim();
+    const password = String(req.body.password || '');
+    // อีเมลไม่สนตัวพิมพ์เล็ก-ใหญ่ (รองรับบัญชีเก่าที่สมัครด้วยตัวพิมพ์ใหญ่ด้วย)
+    const user = email && await db.users.findOne({ email }, { collation: CI });
     if (!user || !bcrypt.compareSync(password, user.password))
-      return res.json({ success: false, error: 'Email หรือรหัสผ่านไม่ถูกต้อง' });
-    req.session.userId = user._id.toString();
-    req.session.username = user.username;
+      return res.status(401).json({ success: false, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+    if (user.disabled) return res.status(403).json({ success: false, error: 'บัญชีนี้ถูกระงับการใช้งาน' });
+    startSession(req, user);
     res.json({ success: true, username: user.username });
   } catch (e) {
-    res.json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
   }
 });
 
@@ -166,12 +212,13 @@ app.get('/api/search', async (req, res) => {
     const skills = await db.skills.find(query).toArray();
     const skillById = new Map(skills.map(s => [s._id.toString(), s]));
     const userSkills = await db.user_skills.find({ type: 'teach', skill_id: { $in: skills.map(s => s._id) } }).toArray();
+    const hidden = await moderation.hiddenUserIds(req.session.userId);
 
     // รวมเป็น 1 การ์ดต่อคน พร้อมรายการทักษะที่ตรงกับคำค้น (คนสอนหลายอย่างจะไม่ขึ้นซ้ำ)
     const skillsByUser = new Map();
     for (const us of userSkills) {
       const uid = us.user_id.toString();
-      if (uid === req.session.userId) continue;
+      if (uid === req.session.userId || hidden.has(uid)) continue;
       if (!skillsByUser.has(uid)) skillsByUser.set(uid, []);
       skillsByUser.get(uid).push(skillById.get(us.skill_id.toString()));
     }
@@ -222,9 +269,11 @@ app.get('/api/matches', requireLogin, async (req, res) => {
       ]
     }).toArray();
 
+    const hidden = await moderation.hiddenUserIds(req.session.userId);
     const byUser = new Map();
     for (const us of candidates) {
       const uid = us.user_id.toString();
+      if (hidden.has(uid)) continue;
       if (!byUser.has(uid)) byUser.set(uid, { canTeachMe: [], wantsFromMe: [] });
       byUser.get(uid)[us.type === 'teach' ? 'canTeachMe' : 'wantsFromMe'].push(us.skill_id);
     }
@@ -290,7 +339,8 @@ app.get('/api/profile', requireLogin, async (req, res) => {
       const skill = await db.skills.findOne({ _id: us.skill_id });
       return { ...us, skill_id: us.skill_id.toString(), skill_name: skill?.name, category: skill?.category };
     }));
-    res.json({ user, skills: skillsWithInfo });
+    req.session.isAdmin = moderation.isAdminEmail(user?.email);
+    res.json({ user, skills: skillsWithInfo, is_admin: req.session.isAdmin });
   } catch (e) {
     res.json({ user: null, skills: [] });
   }
@@ -328,11 +378,13 @@ app.post('/api/profile/update', requireLogin, async (req, res) => {
 });
 
 // --- Exchange ---
-app.post('/api/exchange/request', requireLogin, async (req, res) => {
+app.post('/api/exchange/request', requireLogin, limits.exchange, async (req, res) => {
   try {
     const { receiver_id, message } = req.body;
-    if (!isValidId(receiver_id) || receiver_id === req.session.userId)
+    if (!isValidId(receiver_id) || receiver_id === req.session.userId || moderation.banned.has(receiver_id))
       return res.json({ success: false, error: 'ผู้รับไม่ถูกต้อง' });
+    if (await moderation.isBlockedBetween(req.session.userId, receiver_id))
+      return res.status(403).json({ success: false, error: 'ส่งคำขอถึงผู้ใช้นี้ไม่ได้' });
     const duplicate = await db.exchange_requests.findOne({
       sender_id: new ObjectId(req.session.userId),
       receiver_id: new ObjectId(receiver_id),
@@ -513,7 +565,13 @@ app.get('/api/user/:userId/profile', async (req, res) => {
     if (!isValidId(req.params.userId)) return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
     const userId = new ObjectId(req.params.userId);
     const user = await db.users.findOne({ _id: userId }, { projection: { username: 1, bio: 1 } });
-    if (!user) return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+    // ถูกระงับ หรือเขาบล็อกเราอยู่ → ทำเหมือนไม่มีผู้ใช้นี้ (แอดมินยังเห็น)
+    const { blockedByMe, blockedMe } = await moderation.blockSets(req.session.userId);
+    const isBanned = moderation.banned.has(req.params.userId);
+    if (!user || ((isBanned || blockedMe.has(req.params.userId)) && !req.session.isAdmin))
+      return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+    user.blocked_by_me = blockedByMe.has(req.params.userId);
+    user.banned = isBanned;
     const userSkills = await db.user_skills.find({ user_id: userId }).toArray();
     const skillDocs = await db.skills.find({ _id: { $in: userSkills.map(us => us.skill_id) } }).toArray();
     const skills = userSkills.map(us => {
@@ -563,16 +621,19 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// --- Community feed (routes/posts.js) ---
-app.use('/api', postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId }));
+// --- Community feed (routes/posts.js) + รายงาน/บล็อก/แอดมิน (routes/moderation.js) ---
+const routeDeps = { db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits };
+app.use('/api', postsRouter(routeDeps));
+app.use('/api', moderationRouter(routeDeps));
 
 // --- Socket.io ---
 io.on('connection', (socket) => {
   const sess = socket.request.session;
   const userId = sess?.userId;
-  if (!userId) return socket.disconnect(true);
+  if (!userId || moderation.banned.has(userId)) return socket.disconnect(true);
   socket.join('user:' + userId);
   const chatPeers = {}; // requestId → userId ของอีกฝ่าย (ไว้ส่งแจ้งเตือนข้อความใหม่)
+  let sentTimes = [];   // กันสแปมแชท: ไม่เกิน 20 ข้อความต่อ 10 วินาที
 
   socket.on('joinRoom', async (requestId) => {
     try {
@@ -589,6 +650,13 @@ io.on('connection', (socket) => {
     try {
       text = String(text || '').trim().slice(0, 2000);
       if (!text || !socket.rooms.has(requestId)) return;
+      const now = Date.now();
+      sentTimes = sentTimes.filter(t => now - t < 10000);
+      if (sentTimes.length >= 20 && process.env.RATE_LIMIT !== 'off')
+        return socket.emit('chatError', 'ส่งข้อความถี่เกินไป กรุณารอสักครู่');
+      sentTimes.push(now);
+      if (moderation.banned.has(userId) || await moderation.isBlockedBetween(userId, chatPeers[requestId]))
+        return socket.emit('chatError', 'ส่งข้อความไม่ได้ เนื่องจากมีการบล็อกกันอยู่');
       const msg = {
         request_id: new ObjectId(requestId),
         sender_id: userId,

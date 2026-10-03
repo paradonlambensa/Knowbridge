@@ -8,6 +8,14 @@ const dbName = process.env.MONGODB_DB || 'knowbridge';
 const client = new MongoClient(uri);
 const db = {};
 
+// บัญชีทดลอง (รหัส demo1234 อยู่ใน README) — บนเว็บจริงปิดไว้ก่อน เปิดได้ด้วย DEMO_ACCOUNTS=on
+// Render ตั้ง RENDER=true ให้อัตโนมัติ
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER;
+const DEMO_EMAILS = ['lxzy@demo.com', 'opie@demo.com', 'chwwy@demo.com'];
+const demoEnabled = process.env.DEMO_ACCOUNTS ? process.env.DEMO_ACCOUNTS === 'on' : !isProduction;
+// เทียบอีเมล/ชื่อผู้ใช้แบบไม่สนตัวพิมพ์เล็ก-ใหญ่
+const CI = { locale: 'en', strength: 2 };
+
 async function connectDB() {
   try {
     await client.connect();
@@ -22,6 +30,8 @@ async function connectDB() {
     db.messages          = database.collection('messages');
     db.posts             = database.collection('posts');
     db.comments          = database.collection('comments');
+    db.reports           = database.collection('reports');
+    db.blocks            = database.collection('blocks');
 
     await Promise.all([
       db.messages.createIndex({ request_id: 1, created_at: 1 }),
@@ -33,12 +43,28 @@ async function connectDB() {
       db.posts.createIndex({ tags: 1, _id: -1 }),
       db.posts.createIndex({ author_id: 1, _id: -1 }),
       db.comments.createIndex({ post_id: 1, _id: 1 }),
+      db.reports.createIndex({ status: 1, _id: -1 }),
+      db.reports.createIndex({ reporter_id: 1, type: 1, target_id: 1 }),
+      db.blocks.createIndex({ blocker_id: 1, blocked_id: 1 }, { unique: true }),
+      db.blocks.createIndex({ blocked_id: 1 }),
     ]);
+    // อีเมล/ชื่อซ้ำกันไม่ได้ (Test@x กับ test@x นับเป็นอันเดียวกัน) — ถ้าข้อมูลเก่ามีซ้ำอยู่แล้ว
+    // index จะสร้างไม่ได้ แต่ระบบยังทำงานต่อ (ฝั่ง register เช็กซ้ำให้อยู่แล้ว)
+    for (const field of ['email', 'username']) {
+      await db.users.createIndex({ [field]: 1 }, { unique: true, collation: CI, name: `${field}_ci_unique` })
+        .catch(e => console.warn(`⚠️ สร้าง unique index ของ ${field} ไม่ได้ (มีข้อมูลซ้ำอยู่?):`, e.message));
+    }
 
     // ✅ รัน seed แยกกันทีละตัว ไม่ผูกกัน
     await seedSkills();
     await seedUsers();
     await seedUserSkills();  // ← เพิ่มใหม่ แยกออกมา
+    // เปิด/ปิดบัญชีทดลองตามการตั้งค่า (ไม่ลบ — ข้อมูลยังอยู่ เปิดกลับได้)
+    const { modifiedCount } = await db.users.updateMany(
+      { email: { $in: DEMO_EMAILS }, disabled: { $ne: !demoEnabled } },
+      { $set: { disabled: !demoEnabled } }
+    );
+    console.log(`👤 บัญชีทดลอง: ${demoEnabled ? 'เปิด' : 'ปิด'}${modifiedCount ? ` (เปลี่ยน ${modifiedCount} บัญชี)` : ''}`);
     console.log('🚀 Database ready!');
   } catch (err) {
     console.error('❌ MongoDB Error:', err);
@@ -82,6 +108,7 @@ async function seedSkills() {
 
 // ===== Seed Users (เฉพาะถ้าไม่มี user เลย) =====
 async function seedUsers() {
+  if (!demoEnabled) return;
   const count = await db.users.countDocuments();
   if (count > 0) return;
   const users = [
@@ -135,4 +162,4 @@ async function seedUserSkills() {
 }
 
 const ready = connectDB();
-module.exports = { db, ObjectId, client, dbName, ready };
+module.exports = { db, ObjectId, client, dbName, ready, CI };

@@ -464,6 +464,56 @@ textarea.input { resize: vertical; min-height: 84px; }
 .pill-x:hover { opacity: 1; background: rgba(0,0,0,0.08); }
 .picker-full { font-size: 0.82rem; color: var(--text-faint); }
 
+/* ===== ดูแลเนื้อหา: เมนู ⋯ / รายงาน / บล็อก / แอดมิน ===== */
+.field-hint { display: block; font-size: 0.78rem; color: var(--text-faint); margin-top: 0.3rem; font-weight: 400; }
+.post-menu-wrap { position: relative; margin-left: auto; }
+.menu-btn {
+  border: none; background: none; cursor: pointer; color: var(--text-faint);
+  font-size: 1.1rem; line-height: 1; padding: 0.15rem 0.45rem; border-radius: 999px;
+}
+.menu-btn:hover, .menu-btn[aria-expanded="true"] { background: var(--surface); color: var(--text); }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 190px;
+  display: flex; flex-direction: column; padding: 0.3rem;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+}
+.menu button {
+  text-align: left; border: none; background: none; cursor: pointer;
+  padding: 0.5rem 0.7rem; border-radius: 6px; color: var(--text); font-size: 0.9rem;
+}
+.menu button:hover { background: var(--surface); }
+.menu button.danger { color: var(--danger); }
+.hidden-note {
+  display: inline-block; margin-top: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 6px;
+  font-size: 0.8rem; background: var(--warning-pale); color: var(--warning);
+}
+.post-meta .btn-ghost { color: var(--text-faint); }
+.post-meta .btn + .btn { margin-left: 0; }
+
+.reason-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; text-align: left; }
+.reason {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.8rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.93rem;
+}
+.reason:has(input:checked) { border-color: var(--blue); background: var(--blue-pale); }
+.reason input { accent-color: var(--blue); }
+
+.profile-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; justify-content: center; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.profile-actions .btn { color: var(--text-light); }
+.blocked-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.6rem 0.9rem; border-radius: var(--radius-sm); background: var(--surface); color: var(--text-muted); font-size: 0.92rem;
+}
+.banned-badge { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: var(--danger-pale); color: var(--danger); vertical-align: middle; }
+.blocked-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0; }
+.blocked-row .avatar { width: 32px; height: 32px; font-size: 0.85rem; }
+.blocked-row span { flex: 1; font-weight: 600; }
+
+.report-preview { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.15rem; white-space: pre-wrap; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.report-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+.report-detail { font-size: 0.85rem; color: var(--text-light); margin-top: 0.4rem; font-style: italic; }
+
 /* ===== ชุมชน (ฟีด) ===== */
 .nav-links a.active { color: var(--link); }
 .feed-page { padding-top: 2.5rem; }

@@ -18,8 +18,16 @@ function extractTags(text) {
   return [...tags];
 }
 
-module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId }) {
+module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId, moderation, limits }) {
   const router = express.Router();
+
+  // เนื้อหาที่ถูกซ่อน (รายงานครบ) เห็นได้แค่เจ้าของกับแอดมิน
+  function visibleTo(req) {
+    if (req.session.isAdmin) return {};
+    const or = [{ hidden: { $ne: true } }];
+    if (req.session.userId) or.push({ author_id: new ObjectId(req.session.userId) });
+    return { $or: or };
+  }
 
   // แปลงโพสต์จาก DB เป็นรูปที่ส่งให้ client (ไม่ส่งรายชื่อคนกดถูกใจออกไปทั้งหมด)
   async function present(posts, meId) {
@@ -38,7 +46,8 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       liked: !!meId && (p.likes || []).some(id => id.toString() === meId),
       comment_count: p.comment_count || 0,
       created_at: p.created_at,
-      mine: !!meId && p.author_id.toString() === meId
+      mine: !!meId && p.author_id.toString() === meId,
+      hidden: !!p.hidden
     }));
   }
 
@@ -49,7 +58,11 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       const query = {};
       if (isValidId(req.query.before)) query._id = { $lt: new ObjectId(req.query.before) };
       if (req.query.tag) query.tags = String(req.query.tag).toLowerCase().replace(/^#/, '');
-      if (isValidId(req.query.author)) query.author_id = new ObjectId(req.query.author);
+      // ไม่แสดงโพสต์ของคนที่ถูกระงับ หรือบล็อกกันอยู่
+      const hiddenAuthors = [...await moderation.hiddenUserIds(req.session.userId)].map(id => new ObjectId(id));
+      query.author_id = { $nin: hiddenAuthors };
+      if (isValidId(req.query.author)) query.author_id.$eq = new ObjectId(req.query.author);
+      Object.assign(query, visibleTo(req));
       // ดึงเกิน 1 ตัวเพื่อรู้ว่ายังมีหน้าถัดไปไหม
       const rows = await db.posts.find(query).sort({ _id: -1 }).limit(limit + 1).toArray();
       const page = rows.slice(0, limit);
@@ -68,7 +81,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
     try {
       const since = ObjectId.createFromTime(Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60);
       const rows = await db.posts.aggregate([
-        { $match: { _id: { $gte: since }, tags: { $ne: [] } } },
+        { $match: { _id: { $gte: since }, tags: { $ne: [] }, hidden: { $ne: true } } },
         { $unwind: '$tags' },
         { $group: { _id: '$tags', count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },
@@ -80,7 +93,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
     }
   });
 
-  router.post('/posts', requireLogin, async (req, res) => {
+  router.post('/posts', requireLogin, limits.post, async (req, res) => {
     try {
       const text = String(req.body.text || '').trim();
       if (!text) return res.status(400).json({ success: false, error: 'กรุณาพิมพ์ข้อความก่อนโพสต์' });
@@ -107,9 +120,10 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
   router.delete('/posts/:id', requireLogin, async (req, res) => {
     try {
       if (!isValidId(req.params.id)) return res.status(404).json({ success: false });
+      // เจ้าของลบได้ แอดมินลบได้ทุกโพสต์
       const { deletedCount } = await db.posts.deleteOne({
         _id: new ObjectId(req.params.id),
-        author_id: new ObjectId(req.session.userId)
+        ...(req.session.isAdmin ? {} : { author_id: new ObjectId(req.session.userId) })
       });
       if (!deletedCount) return res.status(403).json({ success: false, error: 'ลบได้เฉพาะโพสต์ของตัวเอง' });
       await db.comments.deleteMany({ post_id: new ObjectId(req.params.id) });
@@ -127,6 +141,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       const postId = new ObjectId(req.params.id);
       const post = await db.posts.findOne({ _id: postId }, { projection: { likes: 1, author_id: 1 } });
       if (!post) return res.status(404).json({ success: false });
+      if (await moderation.isBlockedBetween(me, post.author_id)) return res.status(403).json({ success: false });
       const alreadyLiked = (post.likes || []).some(id => id.equals(me));
       const updated = await db.posts.findOneAndUpdate(
         { _id: postId },
@@ -145,7 +160,12 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
   router.get('/posts/:id/comments', async (req, res) => {
     try {
       if (!isValidId(req.params.id)) return res.json([]);
-      const comments = await db.comments.find({ post_id: new ObjectId(req.params.id) }).sort({ _id: 1 }).toArray();
+      const hiddenAuthors = [...await moderation.hiddenUserIds(req.session.userId)].map(id => new ObjectId(id));
+      const comments = await db.comments.find({
+        post_id: new ObjectId(req.params.id),
+        author_id: { $nin: hiddenAuthors },
+        ...visibleTo(req)
+      }).sort({ _id: 1 }).toArray();
       const authors = await db.users.find(
         { _id: { $in: comments.map(c => c.author_id) } }, { projection: { username: 1 } }
       ).toArray();
@@ -155,14 +175,15 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
         author_name: authors.find(a => a._id.equals(c.author_id))?.username || 'ไม่ทราบชื่อ',
         text: c.text,
         created_at: c.created_at,
-        mine: c.author_id.toString() === req.session.userId
+        mine: c.author_id.toString() === req.session.userId,
+        hidden: !!c.hidden
       })));
     } catch (e) {
       res.json([]);
     }
   });
 
-  router.post('/posts/:id/comments', requireLogin, async (req, res) => {
+  router.post('/posts/:id/comments', requireLogin, limits.comment, async (req, res) => {
     try {
       if (!isValidId(req.params.id)) return res.status(404).json({ success: false });
       const text = String(req.body.text || '').trim();
@@ -170,6 +191,10 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       if ([...text].length > COMMENT_MAX)
         return res.status(400).json({ success: false, error: `ความคิดเห็นยาวได้ไม่เกิน ${COMMENT_MAX} ตัวอักษร` });
       const postId = new ObjectId(req.params.id);
+      const target = await db.posts.findOne({ _id: postId }, { projection: { author_id: 1 } });
+      if (!target) return res.status(404).json({ success: false, error: 'ไม่พบโพสต์' });
+      if (await moderation.isBlockedBetween(req.session.userId, target.author_id))
+        return res.status(403).json({ success: false, error: 'แสดงความคิดเห็นในโพสต์นี้ไม่ได้' });
       const post = await db.posts.findOneAndUpdate(
         { _id: postId }, { $inc: { comment_count: 1 } }, { projection: { author_id: 1, comment_count: 1 }, returnDocument: 'after' }
       );
@@ -194,7 +219,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       if (!isValidId(req.params.id)) return res.status(404).json({ success: false });
       const comment = await db.comments.findOneAndDelete({
         _id: new ObjectId(req.params.id),
-        author_id: new ObjectId(req.session.userId)
+        ...(req.session.isAdmin ? {} : { author_id: new ObjectId(req.session.userId) })
       });
       if (!comment) return res.status(403).json({ success: false, error: 'ลบได้เฉพาะความคิดเห็นของตัวเอง' });
       const post = await db.posts.findOneAndUpdate(
