@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>KnowBridge — เชื่อมความรู้ เชื่อมคน</title>
   <link rel="icon" href="image/logo-mark.png" />
+  <script>
+    // ใส่ธีมที่เคยเลือกไว้ก่อนหน้าเว็บแสดง จะได้ไม่กระพริบเป็นสีขาวก่อนตอนเปิดโหมดมืด
+    try { const t = localStorage.getItem('kb-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <link rel="stylesheet" href="css/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous"/>
 </head>
@@ -17,7 +21,7 @@
         <img src="image/logo-mark.png" alt="" />
         KnowBridge
       </a>
-      <button class="nav-toggle" id="nav-toggle" aria-label="เปิดเมนู" aria-controls="nav-links" aria-expanded="false" onclick="toggleNav()">☰<span id="nav-toggle-badge" class="nav-badge"></span></button>
+      <div class="nav-right">
       <nav class="nav-links" id="nav-links">
         <a href="#search" data-view="home">ค้นหาผู้สอน</a>
         <a href="#community" data-view="community">ชุมชน</a>
@@ -27,6 +31,9 @@
         <button id="btn-logout" style="display:none" class="btn btn-outline btn-sm" onclick="logout()">ออกจากระบบ</button>
         <button id="btn-login-nav" class="btn btn-primary btn-sm" onclick="showModal('login')">เข้าสู่ระบบ</button>
       </nav>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="สลับโหมดมืด"></button>
+      <button class="nav-toggle" id="nav-toggle" aria-label="เปิดเมนู" aria-controls="nav-links" aria-expanded="false" onclick="toggleNav()">☰<span id="nav-toggle-badge" class="nav-badge"></span></button>
+      </div>
     </div>
   </header>
 
@@ -40,6 +47,11 @@
           <p class="eyebrow">แพลตฟอร์มแลกเปลี่ยนทักษะ</p>
           <h1>เชื่อมความรู้ <span class="accent">เชื่อมคน</span></h1>
           <p class="lead">สอนสิ่งที่คุณถนัด แลกกับการเรียนสิ่งที่อยากรู้ — ฟรี ไม่มีค่าใช้จ่าย</p>
+          <div class="swap-demo" aria-label="ตัวอย่าง: คุณสอน Python แลกกับเพื่อนสอน English">
+            <span class="skill-pill teach">คุณสอน · <b>Python</b></span>
+            <span class="swap-arrow" aria-hidden="true">⇄</span>
+            <span class="skill-pill learn">เพื่อนสอน · <b>English</b></span>
+          </div>
         </div>
 
         <form class="search-box" role="search" onsubmit="event.preventDefault(); searchSkills(true)">
@@ -48,11 +60,17 @@
         </form>
         <div class="chips" id="category-chips" aria-label="หมวดหมู่">
           <button class="chip active" data-cat="">ทั้งหมด</button>
-          <button class="chip" data-cat="IT">ไอที</button>
-          <button class="chip" data-cat="Language">ภาษา</button>
-          <button class="chip" data-cat="Art">ศิลปะ</button>
-          <button class="chip" data-cat="Music">ดนตรี</button>
-          <button class="chip" data-cat="Other">อื่น ๆ</button>
+          <button class="chip" data-cat="IT"><span class="dot cat-IT"></span>ไอที</button>
+          <button class="chip" data-cat="Language"><span class="dot cat-Language"></span>ภาษา</button>
+          <button class="chip" data-cat="Art"><span class="dot cat-Art"></span>ศิลปะ</button>
+          <button class="chip" data-cat="Music"><span class="dot cat-Music"></span>ดนตรี</button>
+          <button class="chip" data-cat="Other"><span class="dot cat-Other"></span>อื่น ๆ</button>
+        </div>
+        <div class="stats" id="stats" hidden>
+          <div><b data-stat="users">0</b>ผู้ใช้</div>
+          <div><b data-stat="skills">0</b>ทักษะ</div>
+          <div><b data-stat="exchanges">0</b>การแลกเปลี่ยน</div>
+          <div><b data-stat="posts">0</b>โพสต์ในชุมชน</div>
         </div>
       </div>
     </section>

@@ -435,6 +435,25 @@ app.delete('/api/exchange/request/:id', requireLogin, async (req, res) => {
   }
 });
 
+// --- ตัวเลขจริงบนหน้าแรก (cache 60 วินาที ไม่ต้องนับใหม่ทุกครั้งที่มีคนเปิดเว็บ) ---
+let statsCache = { at: 0, data: null };
+app.get('/api/stats', async (req, res) => {
+  try {
+    if (!statsCache.data || Date.now() - statsCache.at > 60 * 1000) {
+      const [users, skills, posts, exchanges] = await Promise.all([
+        db.users.estimatedDocumentCount(),
+        db.skills.estimatedDocumentCount(),
+        db.posts.estimatedDocumentCount(),
+        db.exchange_requests.countDocuments({ status: 'accepted' })
+      ]);
+      statsCache = { at: Date.now(), data: { users, skills, posts, exchanges } };
+    }
+    res.json(statsCache.data);
+  } catch (e) {
+    res.json({ users: 0, skills: 0, posts: 0, exchanges: 0 });
+  }
+});
+
 // --- Community feed (routes/posts.js) ---
 app.use('/api', postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId }));
 

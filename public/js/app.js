@@ -9,9 +9,81 @@ const CATEGORY_TH = { IT: 'ไอที', Language: 'ภาษา', Art: 'ศิ
 const categoryLabel = (c) => CATEGORY_TH[c] || c;
 
 // วงกลมตัวอักษรแรกของชื่อ แทนรูปโปรไฟล์
+// สีรูปโปรไฟล์คำนวณจากชื่อ — คนเดิมได้สีเดิมทุกครั้ง แต่ละคนสีต่างกัน
+const AVATAR_HUES = [217, 152, 330, 268, 28, 190, 45, 0, 290, 170];
+function hueFor(name) {
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return AVATAR_HUES[h % AVATAR_HUES.length];
+}
+
 function avatar(name, size = '', attrs = '') {
   const first = [...String(name || '?')][0].toUpperCase();
-  return `<div class="avatar ${size}" ${attrs}>${esc(first)}</div>`;
+  return `<div class="avatar ${size}" style="--h:${hueFor(name)}" ${attrs}>${esc(first)}</div>`;
+}
+
+// ===== Skeleton ระหว่างโหลด =====
+const repeat = (n, html) => Array.from({ length: n }, () => html).join('');
+const skeletonCards = (n) => repeat(n, `
+  <div class="person-card skeleton" aria-hidden="true">
+    <div class="person"><span class="sk circle"></span><div style="flex:1"><span class="sk w60"></span><span class="sk w40"></span></div></div>
+    <span class="sk w80"></span><span class="sk w100"></span>
+    <div class="card-actions"><span class="sk btn-h"></span><span class="sk btn-h"></span></div>
+  </div>`);
+const skeletonPosts = (n) => repeat(n, `
+  <div class="post skeleton" aria-hidden="true"><span class="sk circle"></span>
+    <div class="post-body"><span class="sk w40"></span><span class="sk w100"></span><span class="sk w80"></span></div>
+  </div>`);
+const skeletonRequests = (n) => repeat(n, `
+  <div class="request skeleton" aria-hidden="true"><div class="request-top"><span class="sk circle"></span>
+    <div style="flex:1"><span class="sk w40"></span><span class="sk w80"></span></div></div>
+  </div>`);
+
+// ===== Dark mode =====
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+// ถ้ายังไม่เคยกดเลือก ใช้ตามการตั้งค่าของเครื่อง
+function effectiveTheme() {
+  return document.documentElement.dataset.theme || (systemDark.matches ? 'dark' : 'light');
+}
+
+function renderThemeToggle() {
+  const dark = effectiveTheme() === 'dark';
+  const btn = document.getElementById('theme-toggle');
+  btn.innerHTML = dark ? ICON_SUN : ICON_MOON;
+  btn.title = dark ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด';
+  btn.setAttribute('aria-label', btn.title);
+}
+
+function toggleTheme() {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('kb-theme', next); } catch (e) { /* โหมดส่วนตัว/บล็อก storage: ใช้ได้แค่รอบนี้ */ }
+  renderThemeToggle();
+}
+systemDark.addEventListener('change', renderThemeToggle);
+
+// ===== ตัวเลขจริงบนหน้าแรก =====
+async function loadStats() {
+  const res = await fetch('/api/stats');
+  if (!res.ok) return;
+  const stats = await res.json();
+  document.getElementById('stats').hidden = false;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('#stats [data-stat]').forEach(el => {
+    const target = stats[el.dataset.stat] || 0;
+    if (reduceMotion || target === 0) { el.textContent = target.toLocaleString('th-TH'); return; }
+    // นับขึ้นจาก 0 ใน 0.8 วินาที
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min((now - start) / 800, 1);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - t, 3))).toLocaleString('th-TH');
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 function ratingHtml(avg, count) {
@@ -340,7 +412,10 @@ function currentCategory() {
   return document.querySelector('#category-chips .chip.active')?.dataset.cat || '';
 }
 
-async function searchSkills(scrollToResults = false) {
+async function searchSkills(scrollToResults = false, showSkeleton = false) {
+  const resultsEl = document.getElementById('search-results');
+  // ตอนพิมพ์ค้นหาไม่ล้างผลเดิม (กันกระพริบ) — โชว์โครงการ์ดเฉพาะตอนยังว่างหรือเปลี่ยนหมวด
+  if (showSkeleton || !resultsEl.children.length) resultsEl.innerHTML = skeletonCards(3);
   const skill = document.getElementById('search-input').value.trim();
   const category = currentCategory();
   const params = new URLSearchParams();
@@ -367,7 +442,7 @@ async function searchSkills(scrollToResults = false) {
             <p class="rating">${ratingHtml(user.avg_rating, user.review_count)}</p>
           </div>
         </div>
-        <p class="teaches"><span class="tag">${esc(categoryLabel(user.category))}</span>สอน <b>${esc(user.skill_name)}</b></p>
+        <p class="teaches"><span class="tag cat-${esc(user.category)}">${esc(categoryLabel(user.category))}</span>สอน <b>${esc(user.skill_name)}</b></p>
         ${user.bio ? `<p class="bio">${esc(user.bio)}</p>` : ''}
         <div class="card-actions">
           <button class="btn btn-outline btn-sm" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
@@ -389,7 +464,7 @@ document.getElementById('category-chips').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
   document.querySelectorAll('#category-chips .chip').forEach(c => c.classList.toggle('active', c === chip));
-  searchSkills();
+  searchSkills(false, true);
 });
 
 async function sendRequest(receiverId) {
@@ -477,7 +552,12 @@ function switchDashTab(tab) {
 }
 
 async function showDashboard() {
-  document.getElementById('modal-dashboard').style.display = 'flex';
+  const modal = document.getElementById('modal-dashboard');
+  if (modal.style.display === 'none') {
+    document.getElementById('dashboard-received').innerHTML = skeletonRequests(2);
+    document.getElementById('dashboard-sent').innerHTML = skeletonRequests(2);
+  }
+  modal.style.display = 'flex';
   const res = await fetch('/api/dashboard');
   const data = await res.json();
 
@@ -768,6 +848,7 @@ async function loadFeed(reset = true) {
     const params = new URLSearchParams({ limit: 15 });
     if (!reset && feedNext) params.set('before', feedNext);
     if (feedTag) params.set('tag', feedTag);
+    if (reset) document.getElementById('feed-list').innerHTML = skeletonPosts(3);
     const data = await (await fetch(`/api/posts?${params}`)).json();
     const list = document.getElementById('feed-list');
     const html = data.posts.map(renderPost).join('');
@@ -881,7 +962,12 @@ async function submitPost() {
   loadTrendingTags();
 }
 
-function setLike(btn, liked, count) {
+function setLike(btn, liked, count, animate = false) {
+  if (animate && liked) {
+    btn.classList.remove('pop');
+    void btn.offsetWidth; // เริ่ม animation ใหม่ทุกครั้งที่กด
+    btn.classList.add('pop');
+  }
   btn.classList.toggle('on', liked);
   btn.setAttribute('aria-pressed', liked);
   btn.querySelector('.n').textContent = count || '';
@@ -892,7 +978,7 @@ async function toggleLike(postEl) {
   const btn = postEl.querySelector('[data-action="like"]');
   const wasLiked = btn.classList.contains('on');
   const count = parseInt(btn.querySelector('.n').textContent || '0');
-  setLike(btn, !wasLiked, count + (wasLiked ? -1 : 1)); // แสดงผลทันที ไม่รอ server
+  setLike(btn, !wasLiked, count + (wasLiked ? -1 : 1), true); // แสดงผลทันที ไม่รอ server
   const res = await fetch(`/api/posts/${postEl.dataset.id}/like`, { method: 'POST' });
   if (!res.ok) return setLike(btn, wasLiked, count);
   const data = await res.json();
@@ -1066,6 +1152,8 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
+renderThemeToggle();
 checkSession();
 searchSkills();
+loadStats();
 route();
