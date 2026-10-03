@@ -32,6 +32,9 @@ async function connectDB() {
     db.comments          = database.collection('comments');
     db.reports           = database.collection('reports');
     db.blocks            = database.collection('blocks');
+    db.notifications     = database.collection('notifications');
+    db.password_resets   = database.collection('password_resets');
+    db.sessions          = database.collection('sessions'); // ของ connect-mongo — ใช้ลบ session ตอนเปลี่ยนรหัส
 
     await Promise.all([
       db.messages.createIndex({ request_id: 1, created_at: 1 }),
@@ -47,6 +50,12 @@ async function connectDB() {
       db.reports.createIndex({ reporter_id: 1, type: 1, target_id: 1 }),
       db.blocks.createIndex({ blocker_id: 1, blocked_id: 1 }, { unique: true }),
       db.blocks.createIndex({ blocked_id: 1 }),
+      db.notifications.createIndex({ user_id: 1, _id: -1 }),
+      db.notifications.createIndex({ user_id: 1, type: 1, post_id: 1, read: 1 }),
+      // ลบแจ้งเตือนเก่ากว่า 30 วัน และลิงก์รีเซ็ตรหัสที่หมดอายุ ให้เองอัตโนมัติ (TTL index)
+      db.notifications.createIndex({ created_at: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }),
+      db.password_resets.createIndex({ token_hash: 1 }, { unique: true }),
+      db.password_resets.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
     ]);
     // อีเมล/ชื่อซ้ำกันไม่ได้ (Test@x กับ test@x นับเป็นอันเดียวกัน) — ถ้าข้อมูลเก่ามีซ้ำอยู่แล้ว
     // index จะสร้างไม่ได้ แต่ระบบยังทำงานต่อ (ฝั่ง register เช็กซ้ำให้อยู่แล้ว)

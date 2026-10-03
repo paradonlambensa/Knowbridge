@@ -387,7 +387,6 @@ textarea.input { resize: vertical; min-height: 84px; }
 
 .status { flex-shrink: 0; padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
 .status.pending  { background: var(--warning-pale); color: var(--warning); }
-.status.accepted { background: var(--success-pale); color: var(--success); }
 .status.rejected { background: var(--danger-pale);  color: var(--danger); }
 .done-note { font-size: 0.82rem; color: var(--text-faint); align-self: center; }
 
@@ -513,6 +512,45 @@ textarea.input { resize: vertical; min-height: 84px; }
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .report-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
 .report-detail { font-size: 0.85rem; color: var(--text-light); margin-top: 0.4rem; font-style: italic; }
+
+/* ===== กระดิ่งแจ้งเตือน ===== */
+.bell-wrap { position: relative; }
+#bell-btn { position: relative; }
+#bell-btn .nav-badge { position: absolute; top: -6px; right: -6px; margin: 0; }
+.bell-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 150;
+  width: 360px; max-height: 70vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.bell-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.75rem 0.6rem 1rem; background: var(--card); border-bottom: 1px solid var(--border);
+}
+.bell-item {
+  display: flex; gap: 0.7rem; width: 100%; padding: 0.75rem 1rem;
+  border: none; border-bottom: 1px solid var(--border); background: none;
+  text-align: left; color: var(--text); cursor: pointer;
+}
+.bell-item:last-child { border-bottom: none; }
+.bell-item:hover { background: var(--surface); }
+.bell-item.unread { background: var(--blue-pale); }
+.bell-item .avatar { width: 34px; height: 34px; font-size: 0.85rem; }
+.bell-text { display: block; font-size: 0.9rem; line-height: 1.45; }
+.bell-text small { display: block; color: var(--text-light); }
+.bell-time { display: block; font-size: 0.75rem; color: var(--text-faint); margin-top: 0.15rem; }
+.bell-empty { padding: 2rem 1rem; text-align: center; color: var(--text-light); font-size: 0.9rem; }
+
+/* ===== บัญชี / นัด / สถานะการแลกเปลี่ยน ===== */
+.forgot-link { text-align: right; margin: -0.5rem 0 0.9rem; font-size: 0.85rem; }
+.pw-section { margin-top: 1rem; }
+.pw-section summary { cursor: pointer; font-weight: 600; color: var(--link); font-size: 0.92rem; padding: 0.25rem 0; }
+.pw-section[open] summary { margin-bottom: 0.75rem; }
+.schedule-line { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.6rem; }
+.schedule-line.past { color: var(--text-faint); }
+.chat-sub { font-size: 0.78rem; color: var(--text-light); }
+.status.accepted { background: var(--blue-pale); color: var(--blue-dark); }
+.status.completed { background: var(--success-pale); color: var(--success); }
 
 /* ===== ชุมชน (ฟีด) ===== */
 .nav-links a.active { color: var(--link); }
@@ -676,4 +714,5 @@ textarea.input { resize: vertical; min-height: 84px; }
   .feed-tags .chip { flex-shrink: 0; }
   .composer-hint { display: none; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 320px; margin-left: auto; margin-right: auto; }
+  .bell-panel { position: fixed; left: 0.75rem; right: 0.75rem; top: calc(var(--nav-h) + 0.5rem); width: auto; }
 }

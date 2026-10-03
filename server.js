@@ -5,7 +5,11 @@ const { MongoStore } = require('connect-mongo');
 const { db, ObjectId, client, dbName, ready, CI } = require('./database');
 const postsRouter = require('./routes/posts');
 const moderationRouter = require('./routes/moderation');
+const accountRouter = require('./routes/account');
+const notificationsRouter = require('./routes/notifications');
 const createModeration = require('./lib/moderation');
+const createNotifier = require('./lib/notifier');
+const { validateAccount } = require('./lib/accountRules');
 const limits = require('./lib/limits');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -61,9 +65,8 @@ function requireAdmin(req, res, next) {
 }
 
 // ทุก socket ของผู้ใช้ join ห้อง user:<id> ไว้ ส่งแจ้งเตือนถึงทุกแท็บที่เปิดอยู่ได้ในครั้งเดียว
-function notify(userId, payload) {
-  io.to('user:' + userId.toString()).emit('notify', { ...payload, at: new Date() });
-}
+// และเก็บลง DB ให้กระดิ่งเปิดดูย้อนหลังได้ (lib/notifier.js)
+const notify = createNotifier({ db, io, ObjectId });
 
 // จำนวนข้อความที่ยังไม่อ่านของ userId ในแต่ละคำขอ → { requestId: count }
 async function getUnreadCounts(requests, userId) {
@@ -93,11 +96,13 @@ function escapeRegex(str) {
 }
 
 // คำขอที่ accepted แล้ว และ user เป็นคู่กรณี (ใช้ตรวจสิทธิ์แชท/รีวิว)
+const ACTIVE_STATUSES = ['accepted', 'completed'];
+
 async function findAcceptedRequestForUser(requestId, userId) {
   if (!isValidId(requestId) || !userId) return null;
   return db.exchange_requests.findOne({
     _id: new ObjectId(requestId),
-    status: 'accepted',
+    status: { $in: ACTIVE_STATUSES },
     $or: [{ sender_id: new ObjectId(userId) }, { receiver_id: new ObjectId(userId) }]
   });
 }
@@ -129,20 +134,6 @@ async function getReviewsFor(userId) {
 }
 
 // --- Auth ---
-// กติกาบัญชี — ต้องตรงกับที่บอกผู้ใช้ในหน้าสมัคร (public/index.html)
-const USERNAME_RE = /^[\p{L}\p{M}\p{N}_.-]{3,20}$/u;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const WEAK_PASSWORDS = new Set(['12345678', '123456789', '1234567890', 'password', 'password1', 'qwertyui', '11111111', '00000000', 'abcdefgh']);
-
-function validateAccount({ username, email, password }) {
-  if (!USERNAME_RE.test(username)) return 'ชื่อผู้ใช้ต้องยาว 3–20 ตัว ใช้ได้เฉพาะตัวอักษร ตัวเลข และ _ . -';
-  if (email.length > 254 || !EMAIL_RE.test(email)) return 'รูปแบบอีเมลไม่ถูกต้อง';
-  if (password.length < 8) return 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร';
-  if (Buffer.byteLength(password) > 72) return 'รหัสผ่านยาวเกินไป';
-  if (WEAK_PASSWORDS.has(password.toLowerCase()) || /^(.)\1+$/.test(password)) return 'รหัสผ่านนี้เดาง่ายเกินไป ลองตั้งใหม่';
-  return null;
-}
-
 function startSession(req, user) {
   req.session.userId = user._id.toString();
   req.session.username = user.username;
@@ -391,14 +382,14 @@ app.post('/api/exchange/request', requireLogin, limits.exchange, async (req, res
       status: 'pending'
     });
     if (duplicate) return res.json({ success: false, error: 'คุณส่งคำขอถึงผู้ใช้นี้แล้ว กรุณารอการตอบรับ' });
-    await db.exchange_requests.insertOne({
+    const { insertedId } = await db.exchange_requests.insertOne({
       sender_id: new ObjectId(req.session.userId),
       receiver_id: new ObjectId(receiver_id),
       message: String(message || '').slice(0, 500),
       status: 'pending',
       created_at: new Date()
     });
-    notify(receiver_id, { type: 'request', from: req.session.username });
+    notify(receiver_id, { type: 'request', from: req.session.username, request_id: insertedId });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false });
@@ -413,16 +404,18 @@ app.get('/api/dashboard', requireLogin, async (req, res) => {
     const sent = await db.exchange_requests.find({ sender_id: new ObjectId(me) }).sort(newestFirst).toArray();
     const myReviews = await db.reviews.find({ reviewer_id: new ObjectId(me) }).toArray();
     const reviewedIds = new Set(myReviews.map(r => r.request_id.toString()));
-    const unread = await getUnreadCounts([...received, ...sent].filter(r => r.status === 'accepted'), me);
+    const unread = await getUnreadCounts([...received, ...sent].filter(r => ACTIVE_STATUSES.includes(r.status)), me);
 
-    const enriched = async (list, idField) => Promise.all(list.map(async ({ last_read, ...r }) => {
+    const enriched = async (list, idField) => Promise.all(list.map(async ({ last_read, completed_by = [], ...r }) => {
       const user = await db.users.findOne({ _id: r[idField] });
       return {
         ...r,
         other_user_id: r[idField],
         other_username: user?.username || 'ไม่ทราบชื่อ',
         reviewed: reviewedIds.has(r._id.toString()),
-        unread: unread[r._id.toString()] || 0
+        unread: unread[r._id.toString()] || 0,
+        completed_by_me: completed_by.some(id => id.toString() === me),
+        completed_by_other: completed_by.some(id => id.toString() !== me)
       };
     }));
 
@@ -444,10 +437,52 @@ app.post('/api/exchange/respond', requireLogin, async (req, res) => {
       { _id: new ObjectId(request_id), status: 'pending', receiver_id: new ObjectId(req.session.userId) },
       { $set: { status } }
     );
-    if (updated) notify(updated.sender_id, { type: status, from: req.session.username });
+    if (updated) notify(updated.sender_id, { type: status, from: req.session.username, request_id: updated._id });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false });
+  }
+});
+
+// นัดเวลาเรียน (ส่ง at = null เพื่อยกเลิกนัด)
+app.post('/api/exchange/:id/schedule', requireLogin, async (req, res) => {
+  try {
+    const request = await findAcceptedRequestForUser(req.params.id, req.session.userId);
+    if (!request) return res.status(404).json({ success: false, error: 'ไม่พบการแลกเปลี่ยนนี้' });
+    const at = req.body.at ? new Date(req.body.at) : null;
+    const yearAhead = Date.now() + 366 * 24 * 60 * 60 * 1000;
+    if (at && (isNaN(at) || at.getTime() < Date.now() - 60 * 1000 || at.getTime() > yearAhead))
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกวันเวลาในอนาคต (ไม่เกิน 1 ปี)' });
+    const note = String(req.body.note || '').trim().slice(0, 200);
+    const me = new ObjectId(req.session.userId);
+    const schedule = at ? { at, note, by: me, updated_at: new Date() } : null;
+    await db.exchange_requests.updateOne({ _id: request._id }, at ? { $set: { schedule } } : { $unset: { schedule: '' } });
+    const other = request.sender_id.equals(me) ? request.receiver_id : request.sender_id;
+    notify(other, { type: 'schedule', from: req.session.username, request_id: request._id, schedule_at: at, preview: note });
+    res.json({ success: true, schedule });
+  } catch (e) {
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+  }
+});
+
+// แต่ละฝ่ายกด "แลกเปลี่ยนเสร็จแล้ว" — ครบทั้งสองฝ่าย = เสร็จสมบูรณ์ แล้วจึงให้คะแนนกันได้
+app.post('/api/exchange/:id/complete', requireLogin, async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(404).json({ success: false });
+    const me = new ObjectId(req.session.userId);
+    const request = await db.exchange_requests.findOneAndUpdate(
+      { _id: new ObjectId(req.params.id), status: 'accepted', $or: [{ sender_id: me }, { receiver_id: me }] },
+      { $addToSet: { completed_by: me } },
+      { returnDocument: 'after' }
+    );
+    if (!request) return res.status(400).json({ success: false, error: 'ยืนยันได้เฉพาะการแลกเปลี่ยนที่กำลังดำเนินอยู่' });
+    const bothDone = [request.sender_id, request.receiver_id].every(id => request.completed_by.some(c => c.equals(id)));
+    if (bothDone) await db.exchange_requests.updateOne({ _id: request._id }, { $set: { status: 'completed', completed_at: new Date() } });
+    const other = request.sender_id.equals(me) ? request.receiver_id : request.sender_id;
+    notify(other, { type: bothDone ? 'completed' : 'complete_request', from: req.session.username, request_id: request._id });
+    res.json({ success: true, completed: bothDone });
+  } catch (e) {
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
   }
 });
 
@@ -457,13 +492,14 @@ app.get('/api/notifications', requireLogin, async (req, res) => {
     const me = req.session.userId;
     const pending = await db.exchange_requests.countDocuments({ receiver_id: new ObjectId(me), status: 'pending' });
     const accepted = await db.exchange_requests.find({
-      status: 'accepted',
+      status: { $in: ACTIVE_STATUSES },
       $or: [{ sender_id: new ObjectId(me) }, { receiver_id: new ObjectId(me) }]
     }).toArray();
     const unread = Object.values(await getUnreadCounts(accepted, me)).reduce((a, b) => a + b, 0);
-    res.json({ pending_requests: pending, unread_messages: unread });
+    const unreadNotifications = await db.notifications.countDocuments({ user_id: new ObjectId(me), read: false });
+    res.json({ pending_requests: pending, unread_messages: unread, unread_notifications: unreadNotifications });
   } catch (e) {
-    res.json({ pending_requests: 0, unread_messages: 0 });
+    res.json({ pending_requests: 0, unread_messages: 0, unread_notifications: 0 });
   }
 });
 
@@ -503,6 +539,9 @@ app.post('/api/review', requireLogin, async (req, res) => {
       return res.json({ success: false, error: 'คะแนนต้องอยู่ระหว่าง 1-5' });
     const request = await findAcceptedRequestForUser(request_id, req.session.userId);
     if (!request) return res.json({ success: false, error: 'ไม่พบคำขอ' });
+    // กันรีวิวปลอม: ต้องยืนยันว่าแลกเปลี่ยนกันจริงครบทั้งสองฝ่ายก่อน
+    if (request.status !== 'completed')
+      return res.json({ success: false, error: 'ให้คะแนนได้หลังทั้งสองฝ่ายกด "แลกเปลี่ยนเสร็จแล้ว"' });
     // ผู้ถูกรีวิวคืออีกฝ่ายของคำขอเสมอ ไม่เชื่อค่าจาก client
     const reviewee_id = request.sender_id.toString() === req.session.userId
       ? request.receiver_id : request.sender_id;
@@ -611,7 +650,7 @@ app.get('/api/stats', async (req, res) => {
         db.users.estimatedDocumentCount(),
         db.skills.estimatedDocumentCount(),
         db.posts.estimatedDocumentCount(),
-        db.exchange_requests.countDocuments({ status: 'accepted' })
+        db.exchange_requests.countDocuments({ status: { $in: ACTIVE_STATUSES } })
       ]);
       statsCache = { at: Date.now(), data: { users, skills, posts, exchanges } };
     }
@@ -622,9 +661,11 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // --- Community feed (routes/posts.js) + รายงาน/บล็อก/แอดมิน (routes/moderation.js) ---
-const routeDeps = { db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits };
+const routeDeps = { db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI };
 app.use('/api', postsRouter(routeDeps));
 app.use('/api', moderationRouter(routeDeps));
+app.use('/api', accountRouter(routeDeps));
+app.use('/api', notificationsRouter(routeDeps));
 
 // --- Socket.io ---
 io.on('connection', (socket) => {

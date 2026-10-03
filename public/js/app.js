@@ -123,11 +123,55 @@ document.addEventListener('click', (e) => {
 });
 
 // ===== Login / Register =====
+const AUTH_FORMS = { login: 'login-email', register: 'reg-username', forgot: 'forgot-email', reset: 'reset-password' };
+
 function showModal(type) {
   document.getElementById('modal-overlay').style.display = 'flex';
-  document.getElementById('modal-login').style.display = type === 'login' ? 'block' : 'none';
-  document.getElementById('modal-register').style.display = type === 'register' ? 'block' : 'none';
-  setTimeout(() => document.getElementById(type === 'login' ? 'login-email' : 'reg-username').focus(), 50);
+  for (const name of Object.keys(AUTH_FORMS)) {
+    document.getElementById('modal-' + name).style.display = name === type ? 'block' : 'none';
+  }
+  setTimeout(() => document.getElementById(AUTH_FORMS[type]).focus(), 50);
+}
+
+// ===== ลืมรหัสผ่าน / ตั้งรหัสใหม่ =====
+let resetToken = null;
+
+function openForgot() {
+  document.getElementById('forgot-email').value = document.getElementById('login-email').value;
+  document.getElementById('forgot-msg').textContent = '';
+  showModal('forgot');
+}
+
+async function requestReset() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const msg = document.getElementById('forgot-msg');
+  if (!email) { msg.className = 'form-msg error-msg'; msg.textContent = 'กรุณาใส่อีเมล'; return; }
+  const res = await fetch('/api/password/forgot', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+  });
+  const data = await res.json();
+  if (!data.success) { msg.className = 'form-msg error-msg'; msg.textContent = data.error || 'ส่งไม่สำเร็จ'; return; }
+  msg.className = 'form-msg';
+  msg.textContent = data.delivery === 'email'
+    ? 'ถ้ามีบัญชีที่ใช้อีเมลนี้ เราส่งลิงก์ตั้งรหัสใหม่ไปแล้ว (ใช้ได้ 30 นาที) อย่าลืมดูในโฟลเดอร์สแปมด้วย'
+    : 'ระบบส่งอีเมลยังไม่เปิดใช้งาน กรุณาติดต่อแอดมินเพื่อขอลิงก์ตั้งรหัสผ่านใหม่';
+}
+
+async function submitReset() {
+  const password = document.getElementById('reset-password').value;
+  const msg = document.getElementById('reset-msg');
+  if (password.length < 8) return (msg.textContent = 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
+  if (password !== document.getElementById('reset-password2').value) return (msg.textContent = 'รหัสผ่านทั้งสองช่องไม่ตรงกัน');
+  const res = await fetch('/api/password/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password })
+  });
+  const data = await res.json();
+  if (!data.success) return (msg.textContent = data.error || 'ตั้งรหัสใหม่ไม่สำเร็จ');
+  resetToken = null;
+  // server ออกจากระบบทุกเครื่องของบัญชีนี้แล้ว — ถ้าหน้านี้ login อยู่ก็ต้องโหลดใหม่
+  if (currentUsername) { location.reload(); return; }
+  showModal('login');
+  showToast('✅ ตั้งรหัสผ่านใหม่แล้ว เข้าสู่ระบบด้วยรหัสใหม่ได้เลย');
 }
 
 function closeModal() {
@@ -185,11 +229,13 @@ function showLoggedIn(username) {
   document.getElementById('btn-logout').style.display = '';
   document.getElementById('nav-dashboard').style.display = '';
   document.getElementById('nav-profile').style.display = '';
+  document.getElementById('bell-wrap').hidden = false;
   currentUsername = username;
   updateHero(username);
   loadMatches();
   ensureSocket();
   refreshBadge();
+  refreshBell();
   renderComposer();
   // ฟีดที่โหลดไว้ตอนยังไม่ login ไม่รู้ว่าเรากดถูกใจอะไร/โพสต์ไหนเป็นของเรา
   if (feedLoaded) loadFeed(true);
@@ -200,15 +246,98 @@ async function logout() {
   location.reload();
 }
 
+document.getElementById('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('pw-msg');
+  const current = document.getElementById('pw-current').value;
+  const next = document.getElementById('pw-new').value;
+  if (!current || !next) return (msg.textContent = 'กรุณากรอกให้ครบ');
+  if (next.length < 8) return (msg.textContent = 'รหัสผ่านใหม่ต้องยาวอย่างน้อย 8 ตัวอักษร');
+  if (next !== document.getElementById('pw-new2').value) return (msg.textContent = 'รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน');
+  const res = await fetch('/api/account/password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: current, new_password: next })
+  });
+  const data = await res.json();
+  if (!data.success) return (msg.textContent = data.error || 'เปลี่ยนรหัสไม่สำเร็จ');
+  e.target.reset();
+  msg.textContent = '';
+  document.getElementById('pw-section').open = false;
+  showToast('🔒 เปลี่ยนรหัสผ่านแล้ว' + (data.other_sessions_ended ? `<small>ออกจากระบบเครื่องอื่นให้แล้ว ${data.other_sessions_ended} เครื่อง</small>` : ''));
+});
+
+// ===== กระดิ่งแจ้งเตือน (เก็บย้อนหลัง 30 วัน) =====
+let bellItems = [];
+
+async function refreshBell() {
+  const res = await fetch('/api/notifications/list');
+  if (!res.ok) return;
+  const data = await res.json();
+  bellItems = data.items;
+  document.getElementById('bell-badge').textContent = data.unread ? (data.unread > 99 ? '99+' : data.unread) : '';
+  renderBell();
+}
+
+function renderBell() {
+  document.getElementById('bell-list').innerHTML = bellItems.length
+    ? bellItems.map((n, i) => `
+        <button class="bell-item ${n.read ? '' : 'unread'}" data-i="${i}">
+          ${avatar(n.from)}
+          <span style="flex:1;min-width:0">
+            <span class="bell-text">${notificationHtml(n)}</span>
+            <span class="bell-time">${timeAgo(n.created_at)}</span>
+          </span>
+        </button>`).join('')
+    : '<div class="bell-empty">ยังไม่มีการแจ้งเตือน</div>';
+}
+
+function toggleBell(force) {
+  const panel = document.getElementById('bell-panel');
+  panel.hidden = force === undefined ? !panel.hidden : !force;
+  document.getElementById('bell-btn').setAttribute('aria-expanded', String(!panel.hidden));
+  if (!panel.hidden) refreshBell();
+}
+document.addEventListener('click', (e) => { if (!e.target.closest('.bell-wrap')) toggleBell(false); });
+
+async function readAllNotifications() {
+  await fetch('/api/notifications/read-all', { method: 'POST' });
+  refreshBell();
+}
+
+document.getElementById('bell-list').addEventListener('click', async (e) => {
+  const item = e.target.closest('[data-i]');
+  if (!item) return;
+  const n = bellItems[item.dataset.i];
+  toggleBell(false);
+  if (!n.read) fetch(`/api/notifications/${n._id}/read`, { method: 'POST' }).then(refreshBell);
+  openNotification(n);
+});
+
 // ===== Notifications =====
+const fmtDateTime = (d) => new Date(d).toLocaleString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
 const NOTIFY_TEXT = {
   request:  (n) => `📬 <b>${esc(n.from)}</b> ส่งคำขอแลกเปลี่ยนมา`,
   accepted: (n) => `✅ <b>${esc(n.from)}</b> ยอมรับคำขอของคุณแล้ว เริ่มแชทได้เลย`,
   rejected: (n) => `<b>${esc(n.from)}</b> ปฏิเสธคำขอของคุณ`,
   message:  (n) => `💬 <b>${esc(n.from)}</b><small>${esc(n.preview)}</small>`,
-  like:     (n) => `❤️ <b>${esc(n.from)}</b> ถูกใจโพสต์ของคุณ`,
-  comment:  (n) => `💬 <b>${esc(n.from)}</b> แสดงความคิดเห็นในโพสต์ของคุณ<small>${esc(n.preview)}</small>`
+  like:     (n) => `❤️ <b>${esc(n.from)}</b>${n.count > 1 ? ` และอีก ${n.count - 1} คน` : ''} ถูกใจโพสต์ของคุณ`,
+  comment:  (n) => `💬 <b>${esc(n.from)}</b> แสดงความคิดเห็นในโพสต์ของคุณ<small>${esc(n.preview)}</small>`,
+  schedule: (n) => n.schedule_at
+    ? `📅 <b>${esc(n.from)}</b> นัดเรียน ${esc(fmtDateTime(n.schedule_at))}${n.preview ? `<small>${esc(n.preview)}</small>` : ''}`
+    : `📅 <b>${esc(n.from)}</b> ยกเลิกนัดเรียน`,
+  complete_request: (n) => `🎓 <b>${esc(n.from)}</b> ยืนยันว่าแลกเปลี่ยนเสร็จแล้ว<small>กดยืนยันด้วย แล้วให้คะแนนกันได้</small>`,
+  completed: (n) => `🎉 การแลกเปลี่ยนกับ <b>${esc(n.from)}</b> เสร็จสมบูรณ์<small>ให้คะแนนกันได้เลย</small>`
 };
+
+const notificationHtml = (n) => (NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n);
+
+// กดแจ้งเตือน (toast หรือในกระดิ่ง) → ไปยังสิ่งที่เกี่ยวข้อง
+async function openNotification(n) {
+  if (n.type === 'message') { await showDashboard(); openChat(n.request_id); }
+  else if (n.type === 'like' || n.type === 'comment') goToPost(n.post_id);
+  else showDashboard();
+}
 
 function showToast(html, onClick) {
   const el = document.createElement('div');
@@ -246,15 +375,15 @@ async function handleNotify(n) {
     // กำลังเปิดแชทนี้อยู่ ข้อความขึ้นในหน้าต่างแล้ว แค่บันทึกว่าอ่านแล้ว
     await markChatRead(n.request_id);
   } else {
-    const onClick = n.type === 'message'
-      ? async () => { await showDashboard(); openChat(n.request_id); }
-      : (n.type === 'like' || n.type === 'comment')
-        ? () => goToPost(n.post_id)
-        : showDashboard;
-    showToast((NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n), onClick);
+    const onClick = () => {
+      if (n._id) fetch(`/api/notifications/${n._id}/read`, { method: 'POST' }).then(refreshBell);
+      openNotification(n);
+    };
+    showToast(notificationHtml(n), onClick);
     if (document.getElementById('modal-dashboard').style.display !== 'none') showDashboard();
   }
   refreshBadge();
+  if (n.type !== 'message') refreshBell();
 }
 
 function ensureSocket() {
@@ -416,6 +545,7 @@ async function showUserProfile(userId) {
     <div class="profile-actions">
       ${user.blocked_by_me ? '' : '<button class="btn btn-ghost btn-sm" onclick="blockViewingUser()">บล็อก</button>'}
       <button class="btn btn-ghost btn-sm" onclick="openReport('user', viewingUser.id)">รายงานผู้ใช้</button>
+      ${currentIsAdmin ? `<button class="btn btn-ghost btn-sm" onclick="adminResetLink(viewingUser.id)">ลิงก์ตั้งรหัสใหม่</button>` : ''}
       ${currentIsAdmin ? `<button class="btn btn-danger btn-sm" onclick="adminBan(viewingUser.id, ${!user.banned})">${user.banned ? 'ปลดระงับบัญชี' : 'ระงับบัญชี'}</button>` : ''}
     </div>`;
   body.innerHTML = `
@@ -560,9 +690,16 @@ let dashboardTab = 'received';
 
 const STATUS_LABEL = {
   pending:  (isReceived) => isReceived ? 'รอคุณตอบ' : 'รอตอบรับ',
-  accepted: () => 'ยอมรับแล้ว',
+  accepted: () => 'กำลังแลกเปลี่ยน',
+  completed: () => 'เสร็จสิ้น',
   rejected: (isReceived) => isReceived ? 'ปฏิเสธแล้ว' : 'ถูกปฏิเสธ'
 };
+
+function scheduleLine(r) {
+  if (!r.schedule?.at) return '';
+  const past = new Date(r.schedule.at) < Date.now();
+  return `<p class="schedule-line ${past ? 'past' : ''}">📅 ${past ? 'นัดเมื่อ' : 'นัดครั้งถัดไป'} ${esc(fmtDateTime(r.schedule.at))}${r.schedule.note ? ` · ${formatPostText(r.schedule.note)}` : ''}</p>`;
+}
 
 function renderRequestCard(r, isReceived) {
   const id = esc(r._id);
@@ -573,14 +710,16 @@ function renderRequestCard(r, isReceived) {
       <button class="btn btn-primary btn-sm" onclick="respondRequest('${id}','accepted')">ยอมรับ</button>
       <button class="btn btn-outline btn-sm" onclick="respondRequest('${id}','rejected')">ปฏิเสธ</button>
     ` : `<span class="spacer"></span>${del}`;
-  } else if (r.status === 'accepted') {
-    actions = `
-      <button class="btn btn-primary btn-sm" onclick="openChat('${id}')">แชท${r.unread ? `<span class="nav-badge">${r.unread}</span>` : ''}</button>
-      ${r.reviewed
-        ? '<span class="done-note">★ ให้คะแนนแล้ว</span>'
-        : `<button class="btn btn-ghost btn-sm" onclick="openRating('${id}')">ให้คะแนน</button>`}
-      <span class="spacer"></span>${del}
-    `;
+  } else if (r.status === 'accepted' || r.status === 'completed') {
+    const chat = `<button class="btn btn-primary btn-sm" onclick="openChat('${id}')">แชท${r.unread ? `<span class="nav-badge">${r.unread}</span>` : ''}</button>`;
+    const schedule = `<button class="btn btn-ghost btn-sm" onclick="openSchedule('${id}')">${r.schedule ? 'แก้นัด' : 'นัดเวลา'}</button>`;
+    // ให้คะแนนได้หลังทั้งสองฝ่ายยืนยันว่าแลกเปลี่ยนเสร็จแล้ว
+    const step = r.status === 'completed'
+      ? (r.reviewed ? '<span class="done-note">★ ให้คะแนนแล้ว</span>' : `<button class="btn btn-outline btn-sm" onclick="openRating('${id}')">ให้คะแนน</button>`)
+      : r.completed_by_me
+        ? '<span class="done-note">รออีกฝ่ายยืนยันว่าเสร็จ</span>'
+        : `<button class="btn btn-outline btn-sm" onclick="completeExchange('${id}')">${r.completed_by_other ? 'ยืนยันว่าเสร็จแล้ว' : 'แลกเปลี่ยนเสร็จแล้ว'}</button>`;
+    actions = `${chat}${schedule}${step}<span class="spacer"></span>${del}`;
   } else {
     actions = `<span class="spacer"></span>${del}`;
   }
@@ -596,6 +735,7 @@ function renderRequestCard(r, isReceived) {
         </div>
         <span class="status ${r.status}">${STATUS_LABEL[r.status]?.(isReceived) || esc(r.status)}</span>
       </div>
+      ${scheduleLine(r)}
       <div class="request-actions">${actions}</div>
     </div>
   `;
@@ -649,6 +789,68 @@ async function respondRequest(requestId, status) {
   loadMatches();
 }
 
+async function completeExchange(requestId) {
+  const r = dashboardRequests[requestId];
+  if (!confirm(`ยืนยันว่าแลกเปลี่ยนทักษะกับ ${r?.other_username || 'อีกฝ่าย'} เสร็จแล้ว?\nเมื่อทั้งสองฝ่ายยืนยัน จะให้คะแนนกันได้`)) return;
+  const res = await fetch(`/api/exchange/${requestId}/complete`, { method: 'POST' });
+  const data = await res.json();
+  if (!data.success) return showToast(esc(data.error || 'ทำรายการไม่สำเร็จ'));
+  await showDashboard();
+  if (data.completed) {
+    showToast('🎉 แลกเปลี่ยนเสร็จสมบูรณ์ ให้คะแนนกันได้เลย');
+    openRating(requestId);
+  } else {
+    showToast('บันทึกแล้ว รออีกฝ่ายยืนยัน');
+  }
+}
+
+// ===== นัดเวลาเรียน =====
+let scheduleRequestId = null;
+const pad2 = (n) => String(n).padStart(2, '0');
+// ค่าสำหรับ <input type="datetime-local"> ต้องเป็นเวลาท้องถิ่น ไม่ใช่ UTC
+const toLocalInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function openSchedule(requestId) {
+  const r = dashboardRequests[requestId];
+  scheduleRequestId = requestId;
+  const atInput = document.getElementById('schedule-at');
+  atInput.min = toLocalInput(new Date());
+  // ยังไม่มีนัด → เสนอพรุ่งนี้เวลาเดิมปัดเป็นชั่วโมง
+  const suggest = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  suggest.setMinutes(0, 0, 0);
+  atInput.value = toLocalInput(r?.schedule?.at ? new Date(r.schedule.at) : suggest);
+  document.getElementById('schedule-note').value = r?.schedule?.note || '';
+  document.getElementById('schedule-with').textContent = `กับ ${r?.other_username || ''} — อีกฝ่ายจะได้รับแจ้งเตือน`;
+  document.getElementById('schedule-cancel').hidden = !r?.schedule;
+  document.getElementById('schedule-msg').textContent = '';
+  document.getElementById('modal-schedule').style.display = 'flex';
+}
+
+function closeSchedule() {
+  document.getElementById('modal-schedule').style.display = 'none';
+}
+
+async function saveSchedule(at, note) {
+  const res = await fetch(`/api/exchange/${scheduleRequestId}/schedule`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ at, note })
+  });
+  const data = await res.json();
+  if (!data.success) return (document.getElementById('schedule-msg').textContent = data.error || 'บันทึกไม่สำเร็จ');
+  closeSchedule();
+  showToast(at ? '📅 บันทึกนัดแล้ว แจ้งอีกฝ่ายให้แล้ว' : 'ยกเลิกนัดแล้ว');
+  showDashboard();
+}
+
+document.getElementById('schedule-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const value = document.getElementById('schedule-at').value;
+  if (!value) return (document.getElementById('schedule-msg').textContent = 'กรุณาเลือกวันและเวลา');
+  saveSchedule(new Date(value).toISOString(), document.getElementById('schedule-note').value);
+});
+document.getElementById('schedule-cancel').addEventListener('click', () => {
+  if (confirm('ยกเลิกนัดนี้?')) saveSchedule(null, '');
+});
+
 async function deleteRequest(requestId) {
   if (!confirm('ลบคำขอนี้?')) return;
   await fetch(`/api/exchange/request/${requestId}`, { method: 'DELETE' });
@@ -672,9 +874,11 @@ async function openChat(requestId) {
   }
 
   const name = req?.other_username || '';
-  document.getElementById('chat-title').innerHTML = `${avatar(name)}<h3>${esc(name)}</h3>`;
+  const next = req?.schedule?.at && new Date(req.schedule.at) > Date.now()
+    ? `<p class="chat-sub">📅 นัดครั้งถัดไป ${esc(fmtDateTime(req.schedule.at))}</p>` : '';
+  document.getElementById('chat-title').innerHTML = `${avatar(name)}<div style="min-width:0"><h3>${esc(name)}</h3>${next}</div>`;
   const rateBtn = document.getElementById('chat-rate-btn');
-  rateBtn.hidden = !req || req.reviewed;
+  rateBtn.hidden = !req || req.status !== 'completed' || req.reviewed;
   rateBtn.onclick = () => openRating(requestId);
 
   document.getElementById('modal-chat').style.display = 'flex';
@@ -954,6 +1158,19 @@ async function showAdmin() {
 
 function closeAdmin() {
   document.getElementById('modal-admin').style.display = 'none';
+}
+
+// ผู้ใช้ลืมรหัสแต่ยังไม่ได้ตั้งระบบส่งอีเมล → แอดมินสร้างลิงก์แล้วส่งให้ทางแชท/LINE แทน
+async function adminResetLink(userId) {
+  const res = await fetch(`/api/admin/users/${userId}/reset-link`, { method: 'POST' });
+  const data = await res.json();
+  if (!data.success) return showToast(esc(data.error || 'สร้างลิงก์ไม่สำเร็จ'));
+  try {
+    await navigator.clipboard.writeText(data.link);
+    showToast(`🔗 คัดลอกลิงก์แล้ว ส่งให้ผู้ใช้ได้เลย<small>ใช้ได้ ${data.expires_in_minutes} นาที ใช้ได้ครั้งเดียว</small>`);
+  } catch (e) {
+    prompt(`คัดลอกลิงก์นี้ส่งให้ผู้ใช้ (ใช้ได้ ${data.expires_in_minutes} นาที)`, data.link);
+  }
 }
 
 async function adminBan(userId, banned) {
@@ -1458,6 +1675,12 @@ function focusPendingPost() {
 
 // ===== สลับหน้า: หน้าแรก ↔ ชุมชน (ใช้ #community ใน URL จะได้กด back/แชร์ลิงก์ได้) =====
 function route() {
+  if (location.hash.startsWith('#reset=')) {
+    resetToken = location.hash.slice('#reset='.length);
+    history.replaceState(null, '', location.pathname); // ไม่ให้ token ค้างใน URL/ประวัติ
+    document.getElementById('reset-msg').textContent = '';
+    showModal('reset');
+  }
   const view = location.hash.startsWith('#community') ? 'community' : 'home';
   const changed = view !== currentView;
   currentView = view;

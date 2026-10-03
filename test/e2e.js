@@ -254,6 +254,45 @@ async function run() {
   check('ข้อความของตัวเองไม่นับเป็นยังไม่อ่าน', nA.unread_messages === 0);
   [sA, sB, sC].forEach(s => s.ws.close());
 
+  // --- นัดเวลา / แลกเปลี่ยนเสร็จ ---
+  const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  check('นัดวันเวลาในอดีตไม่ได้', (await post(A, `/api/exchange/${reqId}/schedule`, { at: '2020-01-01T10:00:00Z' })).status === 400);
+  check('คนนอกนัดแทนไม่ได้', (await post(C, `/api/exchange/${reqId}/schedule`, { at: inAnHour })).status === 404);
+  j = await json(post(A, `/api/exchange/${reqId}/schedule`, { at: inAnHour, note: 'ห้องสมุดชั้น 2' }));
+  const dSched = (await json(api(B, '/api/dashboard'))).received.find(x => x._id === reqId);
+  check('A นัดเวลาได้ และ B เห็นนัดใน dashboard',
+    j.success && dSched.schedule?.note === 'ห้องสมุดชั้น 2' && new Date(dSched.schedule.at).toISOString() === inAnHour);
+  j = await json(post(A, '/api/review', { request_id: reqId, rating: 5 }));
+  check('ยังไม่ยืนยันว่าเสร็จ → ให้คะแนนไม่ได้', !j.success && /เสร็จ/.test(j.error), j.error);
+  check('คนนอกกดเสร็จแทนไม่ได้', (await post(C, `/api/exchange/${reqId}/complete`, {})).status === 400);
+  j = await json(post(A, `/api/exchange/${reqId}/complete`, {}));
+  const jAgain = await json(post(A, `/api/exchange/${reqId}/complete`, {}));
+  let dA = (await json(api(A, '/api/dashboard'))).sent.find(x => x._id === reqId);
+  check('A ยืนยันว่าเสร็จ (กดซ้ำไม่นับเพิ่ม) แต่ยังรอ B',
+    j.success && !j.completed && jAgain.success && !jAgain.completed && dA.completed_by_me && !dA.completed_by_other && dA.status === 'accepted');
+  j = await json(post(B, `/api/exchange/${reqId}/complete`, {}));
+  dA = (await json(api(A, '/api/dashboard'))).sent.find(x => x._id === reqId);
+  check('B ยืนยันด้วย → เสร็จสมบูรณ์', j.success && j.completed && dA.status === 'completed');
+  check('เสร็จแล้วยังแชทกันได้', (await api(A, '/api/chat/' + reqId)).status === 200);
+
+  // --- กระดิ่งแจ้งเตือน ---
+  let nl = await json(api(B, '/api/notifications/list'));
+  const types = nl.items.map(n => n.type);
+  check('กระดิ่งของ B: มีคำขอใหม่ นัดเรียน และคำขอยืนยันเสร็จ', ['request', 'schedule', 'complete_request'].every(t => types.includes(t)), types.join());
+  check('กระดิ่งไม่เก็บข้อความแชท (แชทมีตัวนับของมันเอง)', !types.includes('message'));
+  check('badge กระดิ่งตรงกับจำนวนที่ยังไม่อ่าน', nl.unread >= 3 && (await json(api(B, '/api/notifications'))).unread_notifications === nl.unread);
+  const firstId = nl.items[0]._id;
+  await post(B, `/api/notifications/${firstId}/read`, {});
+  let nl2 = await json(api(B, '/api/notifications/list'));
+  check('อ่านทีละรายการได้', nl2.unread === nl.unread - 1 && nl2.items.find(n => n._id === firstId).read === true);
+  const otherUnread = nl2.items.find(n => !n.read)._id;
+  await post(A, `/api/notifications/${otherUnread}/read`, {});
+  check('กดอ่านแจ้งเตือนของคนอื่นไม่มีผล', (await json(api(B, '/api/notifications/list'))).unread === nl2.unread);
+  await post(B, '/api/notifications/read-all', {});
+  check('อ่านทั้งหมดได้', (await json(api(B, '/api/notifications/list'))).unread === 0);
+  const nlA = await json(api(A, '/api/notifications/list'));
+  check('กระดิ่งของ A: ถูกตอบรับ และแลกเปลี่ยนเสร็จสมบูรณ์', nlA.items.some(n => n.type === 'accepted') && nlA.items.some(n => n.type === 'completed'));
+
   // --- รีวิว ---
   check('ก่อนรีวิว check = false', !(await json(api(A, '/api/review/check/' + reqId))).reviewed);
   j = await json(post(A, '/api/review', { request_id: reqId, rating: 7 }));
@@ -303,6 +342,12 @@ async function run() {
   j = await json(post(A, `/api/posts/${postId}/like`, {}));
   await sleep(300);
   check('ถูกใจโพสต์ตัวเองไม่แจ้งเตือนหาตัวเอง', j.liked && fA.of('notify').filter(n => n.type === 'like').length === 1);
+  await post(B, `/api/posts/${postId}/like`, {});
+  await post(C, `/api/posts/${postId}/like`, {});
+  await sleep(300);
+  const likeNotis = (await json(api(A, '/api/notifications/list'))).items.filter(n => n.type === 'like' && n.post_id === postId);
+  check('หลายคนถูกใจโพสต์เดียวกัน → รวมเป็นแจ้งเตือนเดียว', likeNotis.length === 1 && likeNotis[0].count === 3 && likeNotis[0].from === C.username,
+    JSON.stringify(likeNotis.map(n => [n.count, n.from])));
 
   check('ความคิดเห็นว่างไม่ได้', (await post(B, `/api/posts/${postId}/comments`, { text: '' })).status === 400);
   j = await json(post(B, `/api/posts/${postId}/comments`, { text: 'ขอบคุณครับ' }));
@@ -405,6 +450,36 @@ async function run() {
     check('ระงับบัญชีตัวเอง/แอดมินไม่ได้', (await post(admin, `/api/admin/users/${admin.id}/ban`, {})).status === 400);
     j = await json(post(admin, `/api/admin/users/${D.id}/ban`, { banned: false }));
     check('ปลดระงับแล้ว login ได้อีก', j.success && !j.banned && (await loginRaw(dEmail, 'test-password')).ok);
+  }
+
+  // --- เปลี่ยนรหัสผ่าน ---
+  const aEmail = A.profile.user.email;
+  const A2 = { cookie: (await loginRaw(aEmail, 'test-password')).headers.get('set-cookie').split(';')[0] };
+  check('เปลี่ยนรหัส: รหัสเดิมผิดไม่ได้', (await post(A, '/api/account/password', { current_password: 'wrong', new_password: 'new-pass-456' })).status === 400);
+  check('เปลี่ยนรหัส: รหัสใหม่เดาง่ายไม่ได้', (await post(A, '/api/account/password', { current_password: 'test-password', new_password: '12345678' })).status === 400);
+  j = await json(post(A, '/api/account/password', { current_password: 'test-password', new_password: 'new-pass-456' }));
+  check('เปลี่ยนรหัสได้ และออกจากระบบเครื่องอื่นให้', j.success && j.other_sessions_ended >= 1);
+  check('เครื่องที่กดเปลี่ยนรหัสยัง login อยู่', (await api(A, '/api/profile')).status === 200);
+  check('เครื่องอื่นถูก logout', (await api(A2, '/api/profile')).status === 401);
+  check('login ด้วยรหัสใหม่ได้ รหัสเก่าไม่ได้', (await loginRaw(aEmail, 'new-pass-456')).ok && (await loginRaw(aEmail, 'test-password')).status === 401);
+
+  // --- ลืมรหัสผ่าน ---
+  const jUnknown = await json(post(null, '/api/password/forgot', { email: `nobody_${tag}@test.local` }));
+  const jKnown = await json(post(null, '/api/password/forgot', { email: D.profile.user.email }));
+  check('ลืมรหัส: ตอบเหมือนกันไม่ว่าอีเมลจะมีบัญชีหรือไม่', jUnknown.success && jKnown.success && jUnknown.delivery === jKnown.delivery);
+  check('ตั้งรหัสใหม่: ลิงก์มั่วไม่ได้', (await post(null, '/api/password/reset', { token: 'abc', password: 'reset-pass-789' })).status === 400);
+  if (hasAdmin) {
+    const dEmail = D.profile.user.email;
+    const D2 = { cookie: (await loginRaw(dEmail, 'test-password')).headers.get('set-cookie').split(';')[0] };
+    j = await json(post(admin, `/api/admin/users/${D.id}/reset-link`, {}));
+    const token = j.link?.split('#reset=')[1];
+    check('แอดมินสร้างลิงก์ตั้งรหัสใหม่ได้', j.success && /^[0-9a-f]{64}$/.test(token || ''));
+    check('คนทั่วไปสร้างลิงก์ให้คนอื่นไม่ได้ (403)', (await post(A, `/api/admin/users/${D.id}/reset-link`, {})).status === 403);
+    check('ตั้งรหัสใหม่: รหัสเดาง่ายไม่ได้ (ลิงก์ยังไม่ถูกใช้)', (await post(null, '/api/password/reset', { token, password: '11111111' })).status === 400);
+    j = await json(post(null, '/api/password/reset', { token, password: 'reset-pass-789' }));
+    check('ตั้งรหัสใหม่จากลิงก์ได้ และเครื่องที่ login ค้างไว้ถูก logout', j.success && (await api(D2, '/api/profile')).status === 401);
+    check('ลิงก์ใช้ซ้ำไม่ได้', (await post(null, '/api/password/reset', { token, password: 'another-pass-1' })).status === 400);
+    check('login ด้วยรหัสใหม่ได้', (await loginRaw(dEmail, 'reset-pass-789')).ok);
   }
 
   // --- id ไม่ถูกต้อง ---
