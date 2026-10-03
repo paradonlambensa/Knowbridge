@@ -437,6 +437,33 @@ textarea.input { resize: vertical; min-height: 84px; }
 .profile-bio { color: var(--text-muted); margin-bottom: 1rem; }
 .skill-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.25rem; }
 
+/* ===== คู่แลกเปลี่ยนที่แนะนำ ===== */
+.matches-section { padding-bottom: 0; }
+.match-card { position: relative; }
+.match-card.perfect { border-color: rgba(var(--blue-rgb),0.45); box-shadow: 0 0 0 3px rgba(var(--blue-rgb),0.06); }
+.match-badge {
+  align-self: flex-start; margin-bottom: -0.25rem;
+  padding: 0.15rem 0.6rem; border-radius: 999px;
+  background: var(--blue-pale); color: var(--blue-dark);
+  font-size: 0.75rem; font-weight: 700;
+}
+.match-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem; font-size: 0.88rem; }
+.match-label { color: var(--text-light); min-width: 6.5rem; }
+.skill-pill.sm { padding: 0.12rem 0.6rem; font-size: 0.8rem; }
+.match-more { grid-column: 1 / -1; justify-self: center; }
+.match-empty { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding: 1.1rem 1.25rem; border: 1px dashed var(--border-strong); border-radius: var(--radius); color: var(--text-muted); }
+
+/* ===== เลือกทักษะหลายอย่าง (โปรไฟล์) ===== */
+.skill-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.skill-picker .input { width: auto; flex: 1; min-width: 180px; padding: 0.45rem 0.7rem; font-size: 0.9rem; }
+.pill-x {
+  border: none; background: none; cursor: pointer; color: inherit; opacity: 0.6;
+  font-size: 0.75rem; line-height: 1; padding: 0.15rem; margin-left: 0.1rem; border-radius: 50%;
+}
+.pill-x:hover { opacity: 1; background: rgba(0,0,0,0.08); }
+.picker-full { font-size: 0.82rem; color: var(--text-faint); }
+
 /* ===== ชุมชน (ฟีด) ===== */
 .nav-links a.active { color: var(--link); }
 .feed-page { padding-top: 2.5rem; }

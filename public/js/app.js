@@ -185,6 +185,7 @@ function showLoggedIn(username) {
   document.getElementById('nav-profile').style.display = '';
   currentUsername = username;
   updateHero(username);
+  loadMatches();
   ensureSocket();
   refreshBadge();
   renderComposer();
@@ -270,29 +271,68 @@ function ensureSocket() {
 }
 
 // ===== Profile =====
+let skillCatalog = [];
+let profileSkills = { teach: [], learn: [] };
+const MAX_SKILLS = 5;
+
 async function loadSkillOptions() {
-  const [skillsRes, profileRes] = await Promise.all([
-    fetch('/api/skills'),
-    fetch('/api/profile')
-  ]);
-  const skills = await skillsRes.json();
-  const profileData = profileRes.ok ? await profileRes.json() : { skills: [] };
-  const userSkills = profileData.skills || [];
-  const currentTeach = userSkills.find(s => s.type === 'teach')?.skill_id;
-  const currentLearn = userSkills.find(s => s.type === 'learn')?.skill_id;
+  const [skillsRes, profileRes] = await Promise.all([fetch('/api/skills'), fetch('/api/profile')]);
+  skillCatalog = await skillsRes.json();
+  const userSkills = profileRes.ok ? (await profileRes.json()).skills || [] : [];
+  profileSkills = {
+    teach: userSkills.filter(s => s.type === 'teach').map(s => s.skill_id),
+    learn: userSkills.filter(s => s.type === 'learn').map(s => s.skill_id)
+  };
+  renderPickers();
+}
 
-  // จัดกลุ่มตามหมวด ให้เลือกง่ายกว่ารายการยาวรายการเดียว
-  const byCategory = {};
-  skills.forEach(s => (byCategory[s.category] ||= []).push(s));
-  const options = (selectedId, placeholder) =>
-    `<option value="">${placeholder}</option>` +
-    Object.entries(byCategory).map(([cat, list]) => `
-      <optgroup label="${esc(categoryLabel(cat))}">
-        ${list.map(s => `<option value="${s._id}" ${s._id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-      </optgroup>`).join('');
+// ทักษะที่เลือกแล้วเป็นป้ายกด ✕ ลบได้ + dropdown เพิ่ม (ไม่แสดงทักษะที่เลือกไปแล้วทั้งสองฝั่ง)
+function renderPicker(type) {
+  const chosen = profileSkills[type];
+  const taken = new Set([...profileSkills.teach, ...profileSkills.learn]);
+  const pills = chosen.map(id => {
+    const s = skillCatalog.find(x => x._id === id);
+    return s ? `
+      <span class="skill-pill ${type}"><span class="dot cat-${esc(s.category)}"></span>${esc(s.name)}
+        <button type="button" class="pill-x" data-remove="${esc(id)}" aria-label="ลบ ${esc(s.name)}">✕</button>
+      </span>` : '';
+  }).join('');
+  let adder;
+  if (chosen.length >= MAX_SKILLS) {
+    adder = `<span class="picker-full">ครบ ${MAX_SKILLS} ทักษะแล้ว</span>`;
+  } else {
+    const byCategory = {};
+    skillCatalog.filter(s => !taken.has(s._id)).forEach(s => (byCategory[s.category] ||= []).push(s));
+    adder = `
+      <select class="input" aria-label="${type === 'teach' ? 'เพิ่มทักษะที่สอนได้' : 'เพิ่มทักษะที่อยากเรียน'}">
+        <option value="">+ เพิ่มทักษะ</option>
+        ${Object.entries(byCategory).map(([cat, list]) => `
+          <optgroup label="${esc(categoryLabel(cat))}">
+            ${list.map(s => `<option value="${s._id}">${esc(s.name)}</option>`).join('')}
+          </optgroup>`).join('')}
+      </select>`;
+  }
+  document.getElementById('picker-' + type).innerHTML = pills + adder;
+}
 
-  document.getElementById('profile-teach-skill').innerHTML = options(currentTeach, '— ยังไม่ได้เลือก —');
-  document.getElementById('profile-learn-skill').innerHTML = options(currentLearn, '— ยังไม่ได้เลือก —');
+function renderPickers() {
+  renderPicker('teach');
+  renderPicker('learn');
+}
+
+for (const type of ['teach', 'learn']) {
+  const el = document.getElementById('picker-' + type);
+  el.addEventListener('change', (e) => {
+    if (e.target.tagName !== 'SELECT' || !e.target.value) return;
+    profileSkills[type].push(e.target.value);
+    renderPickers(); // อีกฝั่งต้องตัดทักษะนี้ออกจากตัวเลือกด้วย
+  });
+  el.addEventListener('click', (e) => {
+    const x = e.target.closest('[data-remove]');
+    if (!x) return;
+    profileSkills[type] = profileSkills[type].filter(id => id !== x.dataset.remove);
+    renderPickers();
+  });
 }
 
 async function loadProfile() {
@@ -329,16 +369,10 @@ function closeProfile() {
 
 async function saveProfile() {
   const bio = document.getElementById('profile-bio').value;
-  const teachSkill = document.getElementById('profile-teach-skill').value;
-  const learnSkill = document.getElementById('profile-learn-skill').value;
   const res = await fetch('/api/profile/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      bio,
-      teach_skills: teachSkill ? [teachSkill] : [],
-      learn_skills: learnSkill ? [learnSkill] : []
-    })
+    body: JSON.stringify({ bio, teach_skills: profileSkills.teach, learn_skills: profileSkills.learn })
   });
   const data = await res.json();
   if (data.success) {
@@ -346,9 +380,10 @@ async function saveProfile() {
     showToast('✅ บันทึกโปรไฟล์แล้ว');
     updateHero(document.getElementById('profile-username').textContent);
     searchSkills();
+    loadMatches();
   } else {
     const msg = document.getElementById('profile-msg');
-    msg.textContent = 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง';
+    msg.textContent = data.error || 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง';
     msg.className = 'form-msg error-msg';
   }
 }
@@ -442,7 +477,8 @@ async function searchSkills(scrollToResults = false, showSkeleton = false) {
             <p class="rating">${ratingHtml(user.avg_rating, user.review_count)}</p>
           </div>
         </div>
-        <p class="teaches"><span class="tag cat-${esc(user.category)}">${esc(categoryLabel(user.category))}</span>สอน <b>${esc(user.skill_name)}</b></p>
+        <p class="teaches">สอน ${(user.skills || [{ name: user.skill_name, category: user.category }])
+          .map(s => `<span class="tag cat-${esc(s.category)}" title="${esc(categoryLabel(s.category))}">${esc(s.name)}</span>`).join('')}</p>
         ${user.bio ? `<p class="bio">${esc(user.bio)}</p>` : ''}
         <div class="card-actions">
           <button class="btn btn-outline btn-sm" onclick="showUserProfile('${esc(user.id)}')">ดูโปรไฟล์</button>
@@ -467,11 +503,11 @@ document.getElementById('category-chips').addEventListener('click', (e) => {
   searchSkills(false, true);
 });
 
-async function sendRequest(receiverId) {
+async function sendRequest(receiverId, message = 'สวัสดี อยากแลกเปลี่ยนทักษะกันครับ/ค่ะ') {
   const res = await fetch('/api/exchange/request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ receiver_id: receiverId, message: 'สวัสดี อยากแลกเปลี่ยนทักษะกันครับ/ค่ะ' })
+    body: JSON.stringify({ receiver_id: receiverId, message })
   });
   if (res.status === 401) {
     closeUserProfile();
@@ -479,7 +515,10 @@ async function sendRequest(receiverId) {
     return;
   }
   const data = await res.json();
-  if (data.success) showToast('📬 ส่งคำขอแล้ว — ดูสถานะได้ที่ <b>คำขอของฉัน</b>', showDashboard);
+  if (data.success) {
+    showToast('📬 ส่งคำขอแล้ว — ดูสถานะได้ที่ <b>คำขอของฉัน</b>', showDashboard);
+    loadMatches();
+  }
   else showToast(esc(data.error || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง'));
 }
 
@@ -589,12 +628,14 @@ async function respondRequest(requestId, status) {
     body: JSON.stringify({ request_id: requestId, status })
   });
   showDashboard();
+  loadMatches();
 }
 
 async function deleteRequest(requestId) {
   if (!confirm('ลบคำขอนี้?')) return;
   await fetch(`/api/exchange/request/${requestId}`, { method: 'DELETE' });
   showDashboard();
+  loadMatches();
 }
 
 // ===== Chat =====
@@ -676,11 +717,13 @@ async function updateHero(username) {
   const res = await fetch('/api/profile');
   if (!res.ok) return;
   const data = await res.json();
-  const teach = data.skills?.find(s => s.type === 'teach');
-  const learn = data.skills?.find(s => s.type === 'learn');
+  const teach = data.skills?.filter(s => s.type === 'teach') || [];
+  const learn = data.skills?.filter(s => s.type === 'learn') || [];
 
-  const pill = (skill, type, label, addText) => skill
-    ? `<span class="skill-pill ${type}">${label} · <b>${esc(skill.skill_name)}</b></span>`
+  // แสดงสูงสุด 3 ชื่อ ที่เหลือเป็น +N
+  const names = (list) => list.slice(0, 3).map(s => s.skill_name).join(', ') + (list.length > 3 ? ` +${list.length - 3}` : '');
+  const pill = (list, type, label, addText) => list.length
+    ? `<span class="skill-pill ${type}">${label} · <b>${esc(names(list))}</b></span>`
     : `<button class="skill-pill add" onclick="showProfile()">+ ${addText}</button>`;
 
   document.getElementById('hero-greeting').innerHTML = `
@@ -751,6 +794,79 @@ async function submitRating() {
     msg.textContent = data.error || 'เกิดข้อผิดพลาด';
     msg.className = 'form-msg error-msg';
   }
+}
+
+// ===== คู่แลกเปลี่ยนที่แนะนำ =====
+const MATCHES_PREVIEW = 3;
+let matchesById = {};
+let matchesExpanded = false;
+
+const matchEmpty = (text, btn) =>
+  `<div class="match-empty"><span>${text}</span><button class="btn btn-primary btn-sm" onclick="showProfile()">${btn}</button></div>`;
+
+function renderMatch(m) {
+  const pills = (list, type) => list.map(s => `<span class="skill-pill sm ${type}">${esc(s.name)}</span>`).join('');
+  const action = {
+    pending_sent: '<button class="btn btn-outline btn-sm" disabled>ส่งคำขอแล้ว</button>',
+    pending_received: '<button class="btn btn-primary btn-sm" onclick="showDashboard()">ดูคำขอที่เขาส่งมา</button>',
+    accepted: '<button class="btn btn-primary btn-sm" onclick="showDashboard()">กำลังแลกเปลี่ยน</button>'
+  }[m.request_status] || `<button class="btn btn-primary btn-sm" onclick="requestFromMatch('${esc(m.id)}')">ขอแลกเปลี่ยน</button>`;
+  return `
+    <article class="person-card match-card ${m.perfect ? 'perfect' : ''}">
+      ${m.perfect ? '<span class="match-badge">✨ แลกกันได้พอดี</span>' : ''}
+      <div class="person" onclick="showUserProfile('${esc(m.id)}')" title="ดูโปรไฟล์และรีวิว">
+        ${avatar(m.username)}
+        <div>
+          <h3>${esc(m.username)}</h3>
+          <p class="rating">${ratingHtml(m.avg_rating, m.review_count)}</p>
+        </div>
+      </div>
+      ${m.can_teach_me.length ? `<div class="match-row"><span class="match-label">สอนคุณได้</span>${pills(m.can_teach_me, 'teach')}</div>` : ''}
+      ${m.wants_from_me.length ? `<div class="match-row"><span class="match-label">อยากเรียนจากคุณ</span>${pills(m.wants_from_me, 'learn')}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn btn-outline btn-sm" onclick="showUserProfile('${esc(m.id)}')">ดูโปรไฟล์</button>
+        ${action}
+      </div>
+    </article>`;
+}
+
+async function loadMatches() {
+  const section = document.getElementById('matches');
+  if (!currentUsername) { section.hidden = true; return; }
+  section.hidden = false;
+  const list = document.getElementById('match-list');
+  if (!list.children.length) list.innerHTML = skeletonCards(3);
+  const res = await fetch('/api/matches');
+  if (!res.ok) { section.hidden = true; return; }
+  const data = await res.json();
+  matchesById = Object.fromEntries(data.matches.map(m => [m.id, m]));
+
+  if (!data.has_teach && !data.has_learn) {
+    list.innerHTML = matchEmpty('บอกเราว่าคุณสอนอะไรได้ และอยากเรียนอะไร แล้วระบบจะหาคู่แลกเปลี่ยนให้', 'ตั้งทักษะ');
+  } else if (!data.matches.length) {
+    const hint = !data.has_learn ? 'เพิ่มทักษะที่อยากเรียน จะได้เจอคนที่สอนได้'
+      : !data.has_teach ? 'เพิ่มทักษะที่คุณสอนได้ จะได้เจอคนที่อยากแลกด้วย'
+      : 'ยังไม่มีคู่ที่ตรงกัน ลองเพิ่มทักษะอื่น ๆ ดู';
+    list.innerHTML = matchEmpty(hint, 'แก้ไขทักษะ');
+  } else {
+    // โชว์แถวแรกก่อน ไม่ให้ดันผลค้นหาลงไปไกล — ที่เหลือกด "ดูทั้งหมด"
+    const shown = matchesExpanded ? data.matches : data.matches.slice(0, MATCHES_PREVIEW);
+    const more = data.matches.length - shown.length;
+    list.innerHTML = shown.map(renderMatch).join('') + (more > 0
+      ? `<button class="btn btn-ghost match-more" onclick="matchesExpanded = true; loadMatches()">ดูคู่ที่แนะนำทั้งหมด (${data.matches.length})</button>`
+      : '');
+  }
+}
+
+// ข้อความคำขอเขียนให้จากทักษะที่ตรงกัน
+async function requestFromMatch(id) {
+  const m = matchesById[id];
+  if (!m) return;
+  const names = (list) => list.map(s => s.name).join(', ');
+  let message = 'สวัสดีครับ/ค่ะ';
+  if (m.can_teach_me.length) message += ` อยากเรียน ${names(m.can_teach_me)} จากคุณ`;
+  if (m.wants_from_me.length) message += `${m.can_teach_me.length ? ' และ' : ''} สอน ${names(m.wants_from_me)} ให้ได้`;
+  await sendRequest(id, message + ' แลกเปลี่ยนกันไหม?');
 }
 
 // ===== ชุมชน (ฟีดสาธารณะ) =====

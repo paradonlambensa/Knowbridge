@@ -164,25 +164,120 @@ app.get('/api/search', async (req, res) => {
     if (category) query.category = String(category);
     if (skill) query.name = new RegExp(escapeRegex(skill), 'i');
     const skills = await db.skills.find(query).toArray();
-    const skillIds = skills.map(s => s._id);
-    const userSkills = await db.user_skills.find({ type: 'teach', skill_id: { $in: skillIds } }).toArray();
-    const results = [];
+    const skillById = new Map(skills.map(s => [s._id.toString(), s]));
+    const userSkills = await db.user_skills.find({ type: 'teach', skill_id: { $in: skills.map(s => s._id) } }).toArray();
+
+    // รวมเป็น 1 การ์ดต่อคน พร้อมรายการทักษะที่ตรงกับคำค้น (คนสอนหลายอย่างจะไม่ขึ้นซ้ำ)
+    const skillsByUser = new Map();
     for (const us of userSkills) {
-      const user = await db.users.findOne({ _id: us.user_id });
-      const skillInfo = await db.skills.findOne({ _id: us.skill_id });
-      if (user && skillInfo && user._id.toString() !== req.session.userId) {
-        results.push({ id: user._id, username: user.username, bio: user.bio, skill_name: skillInfo.name, category: skillInfo.category });
-      }
+      const uid = us.user_id.toString();
+      if (uid === req.session.userId) continue;
+      if (!skillsByUser.has(uid)) skillsByUser.set(uid, []);
+      skillsByUser.get(uid).push(skillById.get(us.skill_id.toString()));
     }
-    const ratings = await getRatings(results.map(r => r.id));
-    for (const r of results) {
-      const rt = ratings[r.id.toString()];
-      r.avg_rating = rt?.avg ?? null;
-      r.review_count = rt?.count ?? 0;
-    }
+    const users = await db.users.find(
+      { _id: { $in: [...skillsByUser.keys()].map(id => new ObjectId(id)) } },
+      { projection: { username: 1, bio: 1 } }
+    ).toArray();
+    const ratings = await getRatings(users.map(u => u._id));
+
+    const results = users.map(u => {
+      const sk = skillsByUser.get(u._id.toString());
+      const rt = ratings[u._id.toString()];
+      return {
+        id: u._id,
+        username: u.username,
+        bio: u.bio,
+        skills: sk.map(s => ({ name: s.name, category: s.category })),
+        skill_name: sk[0].name,       // เก็บไว้ให้โค้ดเดิมที่อ่านทักษะเดียว
+        category: sk[0].category,
+        avg_rating: rt?.avg ?? null,
+        review_count: rt?.count ?? 0
+      };
+    });
+    // คะแนนสูงก่อน แล้วค่อยเรียงตามชื่อ
+    results.sort((a, b) => (b.avg_rating ?? -1) - (a.avg_rating ?? -1) || a.username.localeCompare(b.username));
     res.json(results);
   } catch (e) {
     res.json([]);
+  }
+});
+
+// --- คู่แลกเปลี่ยนที่แนะนำ ---
+// "พอดี" = เขาสอนสิ่งที่เราอยากเรียน และอยากเรียนสิ่งที่เราสอน
+app.get('/api/matches', requireLogin, async (req, res) => {
+  try {
+    const me = new ObjectId(req.session.userId);
+    const mine = await db.user_skills.find({ user_id: me }).toArray();
+    const myTeach = mine.filter(s => s.type === 'teach').map(s => s.skill_id);
+    const myLearn = mine.filter(s => s.type === 'learn').map(s => s.skill_id);
+    const base = { has_teach: myTeach.length > 0, has_learn: myLearn.length > 0, matches: [] };
+    if (!myTeach.length && !myLearn.length) return res.json(base);
+
+    const candidates = await db.user_skills.find({
+      user_id: { $ne: me },
+      $or: [
+        { type: 'teach', skill_id: { $in: myLearn } },
+        { type: 'learn', skill_id: { $in: myTeach } }
+      ]
+    }).toArray();
+
+    const byUser = new Map();
+    for (const us of candidates) {
+      const uid = us.user_id.toString();
+      if (!byUser.has(uid)) byUser.set(uid, { canTeachMe: [], wantsFromMe: [] });
+      byUser.get(uid)[us.type === 'teach' ? 'canTeachMe' : 'wantsFromMe'].push(us.skill_id);
+    }
+    if (!byUser.size) return res.json(base);
+
+    const userIds = [...byUser.keys()].map(id => new ObjectId(id));
+    const [users, skills, ratings, requests] = await Promise.all([
+      db.users.find({ _id: { $in: userIds } }, { projection: { username: 1, bio: 1 } }).toArray(),
+      db.skills.find({ _id: { $in: candidates.map(c => c.skill_id) } }).toArray(),
+      getRatings(userIds),
+      db.exchange_requests.find({
+        status: { $in: ['pending', 'accepted'] },
+        $or: [
+          { sender_id: me, receiver_id: { $in: userIds } },
+          { receiver_id: me, sender_id: { $in: userIds } }
+        ]
+      }).toArray()
+    ]);
+    const skillInfo = (id) => {
+      const s = skills.find(x => x._id.equals(id));
+      return { id: s._id, name: s.name, category: s.category };
+    };
+    // สถานะกับแต่ละคน: ส่งคำขอไปแล้ว / เขาส่งมา / กำลังแลกเปลี่ยน
+    const statusWith = {};
+    for (const r of requests) {
+      const sentByMe = r.sender_id.equals(me);
+      const other = (sentByMe ? r.receiver_id : r.sender_id).toString();
+      const status = r.status === 'accepted' ? 'accepted' : sentByMe ? 'pending_sent' : 'pending_received';
+      if (statusWith[other] !== 'accepted') statusWith[other] = status;
+    }
+
+    const matches = users.map(u => {
+      const m = byUser.get(u._id.toString());
+      const rt = ratings[u._id.toString()];
+      const perfect = m.canTeachMe.length > 0 && m.wantsFromMe.length > 0;
+      return {
+        id: u._id,
+        username: u.username,
+        bio: u.bio,
+        perfect,
+        can_teach_me: m.canTeachMe.map(skillInfo),
+        wants_from_me: m.wantsFromMe.map(skillInfo),
+        avg_rating: rt?.avg ?? null,
+        review_count: rt?.count ?? 0,
+        request_status: statusWith[u._id.toString()] || null,
+        score: (perfect ? 100 : 0) + m.canTeachMe.length * 10 + m.wantsFromMe.length * 5 + (rt?.avg || 0)
+      };
+    }).sort((a, b) => b.score - a.score).slice(0, 12).map(({ score, ...m }) => m);
+
+    res.json({ ...base, matches });
+  } catch (e) {
+    console.error('matches error:', e);
+    res.status(500).json({ has_teach: false, has_learn: false, matches: [] });
   }
 });
 
@@ -201,17 +296,31 @@ app.get('/api/profile', requireLogin, async (req, res) => {
   }
 });
 
+const MAX_SKILLS_PER_TYPE = 5;
+
 app.post('/api/profile/update', requireLogin, async (req, res) => {
   try {
-    const { bio, teach_skills, learn_skills } = req.body;
-    await db.users.updateOne({ _id: new ObjectId(req.session.userId) }, { $set: { bio: String(bio || '').slice(0, 500) } });
-    await db.user_skills.deleteMany({ user_id: new ObjectId(req.session.userId) });
-    for (const id of (teach_skills || []).filter(isValidId)) {
-      await db.user_skills.insertOne({ user_id: new ObjectId(req.session.userId), skill_id: new ObjectId(id), type: 'teach' });
-    }
-    for (const id of (learn_skills || []).filter(isValidId)) {
-      await db.user_skills.insertOne({ user_id: new ObjectId(req.session.userId), skill_id: new ObjectId(id), type: 'learn' });
-    }
+    const me = new ObjectId(req.session.userId);
+    const clean = (list) => [...new Set((Array.isArray(list) ? list : []).filter(isValidId))];
+    const teach = clean(req.body.teach_skills);
+    // ทักษะเดียวกันจะ "สอน" และ "อยากเรียน" พร้อมกันไม่ได้ — ให้ฝั่งสอนชนะ
+    const learn = clean(req.body.learn_skills).filter(id => !teach.includes(id));
+    if (teach.length > MAX_SKILLS_PER_TYPE || learn.length > MAX_SKILLS_PER_TYPE)
+      return res.json({ success: false, error: `เลือกได้ไม่เกิน ${MAX_SKILLS_PER_TYPE} ทักษะต่อประเภท` });
+
+    // เก็บเฉพาะทักษะที่มีอยู่จริงในแคตตาล็อก
+    const existing = await db.skills.find(
+      { _id: { $in: [...teach, ...learn].map(id => new ObjectId(id)) } }, { projection: { _id: 1 } }
+    ).toArray();
+    const valid = new Set(existing.map(s => s._id.toString()));
+    const docs = [
+      ...teach.filter(id => valid.has(id)).map(id => ({ user_id: me, skill_id: new ObjectId(id), type: 'teach' })),
+      ...learn.filter(id => valid.has(id)).map(id => ({ user_id: me, skill_id: new ObjectId(id), type: 'learn' }))
+    ];
+
+    await db.users.updateOne({ _id: me }, { $set: { bio: String(req.body.bio || '').slice(0, 500) } });
+    await db.user_skills.deleteMany({ user_id: me });
+    if (docs.length) await db.user_skills.insertMany(docs);
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false });

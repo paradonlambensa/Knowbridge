@@ -95,8 +95,24 @@ async function run() {
 
   const skills = await json(api(null, '/api/skills'));
   const skillId = (name) => skills.find(s => s.name === name)._id;
-  await post(A, '/api/profile/update', { bio: 'A', teach_skills: [skillId('Python Programming')], learn_skills: [skillId('English')] });
-  await post(B, '/api/profile/update', { bio: '<script>x</script>', teach_skills: [skillId('English')], learn_skills: [] });
+  await post(A, '/api/profile/update', { bio: 'A', teach_skills: [skillId('Python Programming'), skillId('JavaScript')], learn_skills: [skillId('English')] });
+  await post(B, '/api/profile/update', { bio: '<script>x</script>', teach_skills: [skillId('English')], learn_skills: [skillId('Python Programming')] });
+
+  // --- หลายทักษะ ---
+  const pA = await json(api(A, '/api/profile'));
+  check('ตั้งทักษะที่สอนได้หลายอย่าง', pA.skills.filter(s => s.type === 'teach').map(s => s.skill_name).sort().join() === 'JavaScript,Python Programming');
+  let j0 = await json(post(C, '/api/profile/update', {
+    teach_skills: [skillId('Guitar'), skillId('Guitar'), 'not-an-id', '000000000000000000000000'],
+    learn_skills: [skillId('Guitar'), skillId('Piano')]
+  }));
+  const pC = await json(api(C, '/api/profile'));
+  check('ตัดทักษะซ้ำ/ไม่มีจริง และสอน+เรียนทักษะเดียวกันไม่ได้',
+    j0.success && pC.skills.length === 2 &&
+    pC.skills.find(s => s.type === 'teach')?.skill_name === 'Guitar' && pC.skills.find(s => s.type === 'learn')?.skill_name === 'Piano',
+    JSON.stringify(pC.skills.map(s => s.type + ':' + s.skill_name)));
+  j0 = await json(post(C, '/api/profile/update', { teach_skills: skills.slice(0, 6).map(s => s._id) }));
+  check('เลือกเกิน 5 ทักษะต่อประเภทไม่ได้', !j0.success && /5/.test(j0.error), j0.error);
+  await post(C, '/api/profile/update', { teach_skills: [], learn_skills: [] });
 
   // --- ค้นหา ---
   let res = await json(api(A, '/api/search?skill=English'));
@@ -105,6 +121,27 @@ async function run() {
   check('ผลค้นหาไม่มีตัวเอง', !res.some(r => r.username === A.username));
   const r = await api(A, '/api/search?skill=' + encodeURIComponent('C++ (*'));
   check('ค้นหาด้วยอักขระพิเศษไม่พัง', r.status === 200 && Array.isArray(await r.json()));
+  res = await json(api(B, '/api/search'));
+  const aCards = res.filter(x => x.username === A.username);
+  check('คนที่สอนหลายทักษะขึ้นการ์ดเดียว พร้อมรายการทักษะ', aCards.length === 1 && aCards[0].skills.length === 2);
+  res = await json(api(B, '/api/search?skill=java'));
+  check('การ์ดแสดงเฉพาะทักษะที่ตรงคำค้น', res.find(x => x.username === A.username)?.skills.map(s => s.name).join() === 'JavaScript');
+
+  // --- แนะนำคู่ ---
+  check('ยังไม่ login ดูคู่แนะนำไม่ได้ (401)', (await api(null, '/api/matches')).status === 401);
+  let m = await json(api(A, '/api/matches'));
+  let mB = m.matches.find(x => x.id === B.id);
+  check('แนะนำคู่: B แลกกับ A ได้พอดีทั้งสองทาง',
+    m.has_teach && m.has_learn && mB?.perfect &&
+    mB.can_teach_me.map(s => s.name).join() === 'English' &&
+    mB.wants_from_me.map(s => s.name).join() === 'Python Programming' && mB.request_status === null,
+    JSON.stringify(mB));
+  const firstPartial = m.matches.findIndex(x => !x.perfect);
+  const lastPerfect = m.matches.map(x => x.perfect).lastIndexOf(true);
+  check('คู่ที่พอดีขึ้นก่อนคู่ที่ตรงทางเดียว', firstPartial === -1 || lastPerfect < firstPartial);
+  check('ไม่แนะนำตัวเอง', !m.matches.some(x => x.id === A.id));
+  const mC = await json(api(C, '/api/matches'));
+  check('ยังไม่ตั้งทักษะ: บอกให้ไปตั้งโปรไฟล์', !mC.has_teach && !mC.has_learn && mC.matches.length === 0);
 
   // --- socket + แจ้งเตือน ---
   const anon = await sio(null);
@@ -116,6 +153,10 @@ async function run() {
   check('ยังไม่ login เข้า dashboard ไม่ได้ (401)', (await api(null, '/api/dashboard')).status === 401);
   let j = await json(post(A, '/api/exchange/request', { receiver_id: B.id, message: 'ขอเรียน English' }));
   check('A ส่งคำขอถึง B', j.success);
+  m = await json(api(A, '/api/matches'));
+  const mA = (await json(api(B, '/api/matches'))).matches.find(x => x.id === A.id);
+  check('แนะนำคู่บอกสถานะคำขอ (ส่งไปแล้ว / เขาส่งมา)',
+    m.matches.find(x => x.id === B.id)?.request_status === 'pending_sent' && mA?.request_status === 'pending_received');
   await sleep(500);
   const nReq = sB.of('notify').find(n => n.type === 'request');
   check('B ได้แจ้งเตือนคำขอใหม่แบบเรียลไทม์', nReq?.from === A.username);
@@ -142,6 +183,8 @@ async function run() {
   await sleep(500);
   check('B ยอมรับคำขอ', j.success);
   check('A ได้แจ้งเตือนว่าถูกยอมรับ', sA.of('notify').some(n => n.type === 'accepted' && n.from === B.username));
+  m = await json(api(A, '/api/matches'));
+  check('แนะนำคู่บอกว่ากำลังแลกเปลี่ยนกันอยู่', m.matches.find(x => x.id === B.id)?.request_status === 'accepted');
   nB = await json(api(B, '/api/notifications'));
   check('badge ของ B: คำขอรอตอบเหลือ 0', nB.pending_requests === 0);
 
@@ -267,6 +310,7 @@ async function run() {
     check('restart server แล้วยัง login อยู่ (session เก็บใน MongoDB)', again.status === 200);
   }
 
+  await Promise.all([A, B, C].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
   await post(A, '/api/logout', {});
   check('logout แล้ว session ใช้ไม่ได้', (await api(A, '/api/profile')).status === 401);
 }

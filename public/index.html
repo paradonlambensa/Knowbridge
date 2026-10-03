@@ -75,6 +75,19 @@
       </div>
     </section>
 
+    <!-- คู่แลกเปลี่ยนที่แนะนำ (เฉพาะคนที่ login) -->
+    <section class="section matches-section" id="matches" hidden>
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>คู่แลกเปลี่ยนที่เหมาะกับคุณ</h2>
+            <p class="section-sub">คนที่สอนสิ่งที่คุณอยากเรียน และอยากเรียนสิ่งที่คุณสอน</p>
+          </div>
+        </div>
+        <div id="match-list" class="card-grid"></div>
+      </div>
+    </section>
+
     <!-- ผลการค้นหา -->
     <section class="section" id="search">
       <div class="container">
@@ -178,8 +191,8 @@
       <div class="field"><span>ชื่อผู้ใช้</span><p id="profile-username" class="readonly-value"></p></div>
       <div class="field"><span>อีเมล</span><p id="profile-email" class="readonly-value muted"></p></div>
       <label class="field"><span>แนะนำตัว</span><textarea class="input" id="profile-bio" rows="3" placeholder="เช่น เรียนปี 2 ชอบเขียนโปรแกรม ว่างเย็นวันธรรมดา"></textarea></label>
-      <label class="field"><span>ฉันสอนได้</span><select class="input" id="profile-teach-skill"></select></label>
-      <label class="field"><span>ฉันอยากเรียน</span><select class="input" id="profile-learn-skill"></select></label>
+      <div class="field"><span>ฉันสอนได้ <small class="muted">(สูงสุด 5)</small></span><div class="skill-picker" id="picker-teach" data-type="teach"></div></div>
+      <div class="field"><span>ฉันอยากเรียน <small class="muted">(สูงสุด 5)</small></span><div class="skill-picker" id="picker-learn" data-type="learn"></div></div>
       <button class="btn btn-primary btn-block" onclick="saveProfile()">บันทึก</button>
       <p id="profile-msg" class="form-msg"></p>
       <hr class="divider" />
