@@ -323,7 +323,7 @@ socket ที่ไม่ได้ login จะถูกตัดทันที
 ## Deploy
 
 deploy ขึ้น [Render](https://render.com) ได้ฟรีผ่านไฟล์ `render.yaml` ที่รากโปรเจค
-(web service แบบ free, region `singapore`, ใช้ Node ≥ 20.19 ตาม `engines` ใน `package.json`)
+(web service แบบ free, region `singapore`, ใช้ Node 24.x ตาม `engines` ใน `package.json` — ล็อกไว้ให้ตรงกับที่เทส)
 
 1. push โค้ดขึ้น GitHub
 2. ใน Render Dashboard เลือก **New → Blueprint** แล้วเลือก repo นี้
