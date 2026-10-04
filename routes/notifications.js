@@ -1,8 +1,25 @@
 // ===== ศูนย์รวมแจ้งเตือน (กระดิ่ง) =====
 const express = require('express');
 
-module.exports = function notificationsRouter({ db, ObjectId, requireLogin, isValidId }) {
+module.exports = function notificationsRouter({ db, ObjectId, requireLogin, isValidId, ACTIVE_STATUSES, getUnreadCounts }) {
   const router = express.Router();
+
+  // ตัวเลขบน badge ของ Dashboard: คำขอที่รอเราตอบ + ข้อความที่ยังไม่อ่าน
+  router.get('/notifications', requireLogin, async (req, res) => {
+    try {
+      const me = req.session.userId;
+      const pending = await db.exchange_requests.countDocuments({ receiver_id: new ObjectId(me), status: 'pending' });
+      const accepted = await db.exchange_requests.find({
+        status: { $in: ACTIVE_STATUSES },
+        $or: [{ sender_id: new ObjectId(me) }, { receiver_id: new ObjectId(me) }]
+      }).toArray();
+      const unread = Object.values(await getUnreadCounts(accepted, me)).reduce((a, b) => a + b, 0);
+      const unreadNotifications = await db.notifications.countDocuments({ user_id: new ObjectId(me), read: false });
+      res.json({ pending_requests: pending, unread_messages: unread, unread_notifications: unreadNotifications });
+    } catch (e) {
+      res.json({ pending_requests: 0, unread_messages: 0, unread_notifications: 0 });
+    }
+  });
 
   router.get('/notifications/list', requireLogin, async (req, res) => {
     try {

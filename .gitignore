@@ -1,3 +1,5 @@
 node_modules/
 data/
 .env
+# ไฟล์สำรองฐานข้อมูล มีอีเมล/hash รหัสผ่านผู้ใช้ — ห้าม commit
+backups/

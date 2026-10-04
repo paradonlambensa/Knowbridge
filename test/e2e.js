@@ -18,6 +18,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------- server ----------
 let server = null;
+let serverLog = ''; // อีเมลทดสอบถูกพิมพ์ออก console ของ server (ยังไม่ได้ตั้ง RESEND_API_KEY) — ใช้ดึงลิงก์ยืนยัน
 // ปิด rate limit ไว้ก่อน (เทสยิง request เยอะ) — ช่วงท้ายเปิดเพื่อเทสตัวมันเอง
 function startServer(extraEnv = {}) {
   return new Promise((resolve, reject) => {
@@ -29,6 +30,7 @@ function startServer(extraEnv = {}) {
     let log = '';
     const onData = (d) => {
       log += d;
+      serverLog += d;
       if (log.includes('Database ready')) resolve();
       if (log.includes('MongoDB Error')) reject(new Error('เชื่อม MongoDB ไม่ได้:\n' + log));
     };
@@ -487,6 +489,86 @@ async function run() {
     check('login ด้วยรหัสใหม่ได้', (await loginRaw(dEmail, 'reset-pass-789')).ok);
   }
 
+  // --- เสนอทักษะใหม่ ---
+  const suggest = (u, body) => post(u, '/api/skills/suggest', body);
+  const newSkill = `Excel ${tag}`;
+  j = await json(suggest(C, { name: `  excel   ${tag} `, category: 'IT', type: 'teach' }));
+  check('เสนอทักษะใหม่ได้ (ตัดช่องว่างเกินให้)', j.success && j.request?.name === `excel ${tag}` && !j.joined, JSON.stringify(j));
+  check('เสนอทักษะที่มีอยู่แล้วไม่ได้ (ไม่สนตัวพิมพ์)', (await suggest(C, { name: 'python programming', category: 'IT' })).status === 409);
+  check('เสนอทักษะ: ต้องเลือกหมวด และชื่อยาว 2–40 ตัว',
+    (await suggest(C, { name: 'Abc', category: 'Food' })).status === 400 && (await suggest(C, { name: 'a', category: 'IT' })).status === 400);
+  check('เสนอทักษะชื่อเดิมซ้ำไม่ได้', (await suggest(C, { name: `EXCEL ${tag}`, category: 'IT' })).status === 409);
+  j = await json(suggest(B, { name: newSkill, category: 'Other', type: 'learn' })); // D ถูก logout ไปตอนเทสตั้งรหัสใหม่
+  check('คนอื่นเสนอชื่อเดียวกัน → รวมเป็นคำขอเดียว', j.success && j.joined);
+  check('ดูทักษะที่ตัวเองเสนอและรอตรวจได้', (await json(api(C, '/api/skills/suggestions/mine'))).some(r => r.name === `excel ${tag}` && r.type === 'teach'));
+  check('คนทั่วไปดูคำขอทักษะของแอดมินไม่ได้ (403)', (await api(C, '/api/admin/skill-requests')).status === 403);
+  if (hasAdmin) {
+    const reqs = await json(api(admin, '/api/admin/skill-requests'));
+    const sr = reqs.find(r => r.name === `excel ${tag}`);
+    check('แอดมินเห็นคำขอทักษะ พร้อมจำนวนและชื่อคนเสนอ', sr?.count === 2 && sr.users.includes(C.username) && sr.users.includes(B.username), JSON.stringify(sr));
+    j = await json(post(admin, `/api/admin/skill-requests/${sr._id}`, { action: 'approve', name: newSkill, category: 'IT' }));
+    await sleep(300);
+    check('แอดมินอนุมัติ (แก้ชื่อก่อนได้) และเพิ่มเข้าโปรไฟล์คนเสนอทั้งสองคน', j.success && j.skill?.name === newSkill && j.added === 2, JSON.stringify(j));
+    check('ทักษะใหม่อยู่ในแคตตาล็อก', (await json(api(null, '/api/skills'))).some(x => x.name === newSkill && x.category === 'IT'));
+    const pC = await json(api(C, '/api/profile'));
+    const pB2s = await json(api(B, '/api/profile'));
+    check('ทักษะเข้าโปรไฟล์ตามประเภทที่เสนอ (C สอน / B อยากเรียน)',
+      pC.skills.some(x => x.skill_name === newSkill && x.type === 'teach') && pB2s.skills.some(x => x.skill_name === newSkill && x.type === 'learn'));
+    check('ค้นหาทักษะใหม่เจอคนสอน', (await json(api(A, '/api/search?skill=' + encodeURIComponent(newSkill)))).some(x => x.username === C.username));
+    check('คนเสนอได้แจ้งเตือนว่าอนุมัติแล้ว',
+      (await json(api(C, '/api/notifications/list'))).items.some(n => n.type === 'skill_approved' && n.skill_name === newSkill && n.added));
+    check('อนุมัติซ้ำไม่ได้', (await post(admin, `/api/admin/skill-requests/${sr._id}`, { action: 'approve' })).status === 404);
+    j = await json(suggest(C, { name: `Nope ${tag}`, category: 'Other' }));
+    const rid = j.request._id;
+    j = await json(post(admin, `/api/admin/skill-requests/${rid}`, { action: 'reject' }));
+    await sleep(300);
+    check('แอดมินไม่อนุมัติ → คนเสนอได้แจ้งเตือน และหายจากรายการรอตรวจ',
+      j.success && (await json(api(C, '/api/notifications/list'))).items.some(n => n.type === 'skill_rejected' && n.skill_name === `Nope ${tag}`) &&
+      !(await json(api(C, '/api/skills/suggestions/mine'))).some(r => r._id === rid));
+  }
+
+  // --- ยืนยันอีเมล / เปลี่ยนชื่อผู้ใช้และอีเมล ---
+  const F = await register('Finn_' + tag);
+  const fEmail = F.profile.user.email;
+  const verifyLink = (email) => {
+    const at = serverLog.lastIndexOf('ถึง: ' + email);
+    return at === -1 ? null : serverLog.slice(at).match(/#verify=([0-9a-f]{64})/)?.[1];
+  };
+  check('สมัครแล้วส่งลิงก์ยืนยันอีเมล (ในเครื่องพิมพ์ออก console)',
+    F.verify_email_sent === true && F.profile.email_verification_enabled === true && !F.profile.user.email_verified);
+  if (ownServer) {
+    const token = verifyLink(fEmail);
+    check('ยืนยันอีเมล: ลิงก์มั่วไม่ได้', (await post(null, '/api/account/verify-email', { token: 'x'.repeat(64) })).status === 400);
+    j = await json(post(null, '/api/account/verify-email', { token }));
+    check('กดลิงก์ยืนยันอีเมลได้', j.success && (await json(api(F, '/api/profile'))).user.email_verified === true, JSON.stringify(j));
+    check('ลิงก์ยืนยันใช้ซ้ำไม่ได้', (await post(null, '/api/account/verify-email', { token })).status === 400);
+    check('โปรไฟล์สาธารณะบอกว่ายืนยันอีเมลแล้ว (ไม่เปิดเผยอีเมล)',
+      (await json(api(null, `/api/user/${F.id}/profile`))).user.email_verified === true && !('email' in (await json(api(null, `/api/user/${F.id}/profile`))).user));
+    check('ยืนยันแล้วขอลิงก์ใหม่ → บอกว่ายืนยันแล้ว', (await json(post(F, '/api/account/verify-email/send', {}))).already === true);
+  }
+  const identity = (u, body) => post(u, '/api/account/identity', { password: 'test-password', ...body });
+  check('เปลี่ยนชื่อ/อีเมล: รหัสผ่านผิดไม่ได้', (await identity(F, { username: 'Finn_x' + tag, password: 'wrong' })).status === 400);
+  check('เปลี่ยนชื่อ: รูปแบบผิดไม่ได้', (await identity(F, { username: 'a b' })).status === 400);
+  check('เปลี่ยนชื่อ: ชื่อซ้ำ (ไม่สนตัวพิมพ์) ไม่ได้', (await identity(F, { username: B.username.toUpperCase() })).status === 409);
+  check('เปลี่ยนอีเมล: อีเมลซ้ำไม่ได้', (await identity(F, { email: B.profile.user.email.toUpperCase() })).status === 409);
+  check('เปลี่ยนอีเมล: ใช้อีเมลแอดมินไม่ได้', (await identity(F, { email: ADMIN_EMAIL })).status === 400);
+  j = await json(post(A, '/api/posts', { text: `โพสต์ให้ Finn ถูกใจ #${feedTag}` }));
+  await post(F, `/api/posts/${j.post._id}/like`, {});
+  await sleep(300);
+  const F2 = { cookie: (await loginRaw(fEmail, 'test-password')).headers.get('set-cookie').split(';')[0] };
+  const newName = 'Finn2_' + tag;
+  const newEmail = `finn2_${tag}@test.local`;
+  j = await json(identity(F, { username: newName, email: newEmail }));
+  check('เปลี่ยนชื่อผู้ใช้และอีเมลได้ พร้อมส่งลิงก์ยืนยันอีเมลใหม่', j.success && j.username === newName && j.email === newEmail && j.verify_email_sent === true, JSON.stringify(j));
+  const pF = await json(api(F, '/api/profile'));
+  check('เครื่องที่เปลี่ยนยัง login อยู่ (ชื่อ/อีเมลใหม่ และอีเมลใหม่ยังไม่ยืนยัน)',
+    pF.user?.username === newName && pF.user.email === newEmail && pF.user.email_verified === false);
+  check('เครื่องอื่นถูกออกจากระบบ', (await api(F2, '/api/profile')).status === 401);
+  check('login ด้วยอีเมลใหม่ได้ อีเมลเก่าไม่ได้', (await loginRaw(newEmail, 'test-password')).ok && (await loginRaw(fEmail, 'test-password')).status === 401);
+  const aBell = (await json(api(A, '/api/notifications/list'))).items;
+  check('ชื่อในแจ้งเตือนเก่าเปลี่ยนตาม', aBell.some(n => n.from === newName) && !aBell.some(n => n.from === F.username));
+  if (ownServer) check('ลิงก์ยืนยันใหม่ถูกส่งไปที่อีเมลใหม่', !!verifyLink(newEmail));
+
   // --- PDPA: นโยบาย / ขอสำเนาข้อมูล / ลบบัญชี ---
   const privacy = await json(api(null, '/api/privacy'));
   check('มีเวอร์ชันนโยบายความเป็นส่วนตัว', /^\d{4}-\d{2}-\d{2}$/.test(privacy.version || ''), privacy.version);
@@ -580,11 +662,16 @@ async function run() {
     const demoUser = { cookie: demo.headers.get('set-cookie').split(';')[0] };
     const r = await post(demoUser, '/api/account/delete', { password: 'demo1234' });
     check('บัญชีทดลองลบไม่ได้', r.status === 403, `${r.status} ${await r.text()}`);
+    check('บัญชีทดลองเปลี่ยนชื่อ/อีเมลไม่ได้', (await post(demoUser, '/api/account/identity', { password: 'demo1234', username: 'Hacked_' + tag })).status === 403);
   }
 
   // --- การ์ดแชร์ลิงก์ ---
   const home = await (await fetch(BASE + '/')).text();
   check('หน้าแรกมี og:image เป็น URL เต็ม', home.includes(`property="og:image" content="${BASE}/image/og-image.jpg"`) && !home.includes('__ORIGIN__'));
+  const homeRes = await fetch(BASE + '/');
+  const csp = homeRes.headers.get('content-security-policy') || '';
+  check('มี security headers (CSP ห้ามฝังใน iframe, nosniff)',
+    csp.includes("frame-ancestors 'none'") && csp.includes('fonts.googleapis.com') && homeRes.headers.get('x-content-type-options') === 'nosniff', csp);
   check('รูปการ์ดแชร์โหลดได้', (await fetch(BASE + '/image/og-image.jpg')).headers.get('content-type') === 'image/jpeg');
   const evilHome = await new Promise((resolve, reject) => {
     http.get(BASE + '/', { headers: { Host: 'evil.test"><script>x</script>' } }, (r) => {
@@ -609,7 +696,7 @@ async function run() {
     check('ใส่รหัสผิดเกิน 10 ครั้ง → ถูกพักชั่วคราว (429)', last.status === 429);
   }
 
-  await Promise.all([A, B, C, D].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
+  await Promise.all([A, B, C, D, F].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
   await post(A, '/api/logout', {});
   check('logout แล้ว session ใช้ไม่ได้', (await api(A, '/api/profile')).status === 401);
 }

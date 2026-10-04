@@ -2,13 +2,15 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { sendMail, canSendEmail } = require('../lib/mailer');
-const { validatePassword } = require('../lib/accountRules');
+const { sendMail, canSendEmail, emailFeaturesEnabled } = require('../lib/mailer');
+const { validatePassword, validateUsername, validateEmail } = require('../lib/accountRules');
 const { PRIVACY_VERSION, exportUserData, deleteUserData } = require('../lib/accountData');
 
 const RESET_TTL_MINUTES = 30;
 
-module.exports = function accountRouter({ db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS }) {
+module.exports = function accountRouter({
+  db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS, emailVerification
+}) {
   const router = express.Router();
   // เก็บแค่ hash ของ token — ถ้าฐานข้อมูลหลุด ก็เอา token ไปใช้ไม่ได้
   const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -48,6 +50,95 @@ module.exports = function accountRouter({ db, ObjectId, io, requireLogin, requir
       await db.users.updateOne({ _id: user._id }, { $set: { password: bcrypt.hashSync(next, 10) } });
       const ended = await endSessions(req.session.userId, req.sessionID);
       res.json({ success: true, other_sessions_ended: ended });
+    } catch (e) {
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
+  // เปลี่ยนชื่อผู้ใช้ และ/หรือ อีเมล (ยืนยันด้วยรหัสผ่าน)
+  // เครื่องอื่นที่ login ค้างไว้จะถูกออกจากระบบ เพราะ session เก่ายังจำชื่อเดิมอยู่
+  router.post('/account/identity', requireLogin, limits.password, async (req, res) => {
+    try {
+      const user = await db.users.findOne({ _id: new ObjectId(req.session.userId) });
+      if (!user || !bcrypt.compareSync(String(req.body.password || ''), user.password))
+        return res.status(400).json({ success: false, error: 'รหัสผ่านไม่ถูกต้อง' });
+      if (DEMO_EMAILS.includes(String(user.email).toLowerCase()))
+        return res.status(403).json({ success: false, error: 'บัญชีทดลองเปลี่ยนชื่อหรืออีเมลไม่ได้' });
+
+      const username = req.body.username === undefined ? user.username : String(req.body.username).trim();
+      const email = req.body.email === undefined ? user.email : String(req.body.email).trim().toLowerCase();
+      const nameChanged = username !== user.username;
+      const emailChanged = email !== String(user.email).toLowerCase();
+      if (!nameChanged && !emailChanged) return res.status(400).json({ success: false, error: 'ไม่มีข้อมูลที่เปลี่ยน' });
+      const invalid = (nameChanged && validateUsername(username)) || (emailChanged && validateEmail(email));
+      if (invalid) return res.status(400).json({ success: false, error: invalid });
+      // แอดมินกำหนดด้วยอีเมล — ห้ามเปลี่ยนไปใช้อีเมลแอดมินที่ไม่ใช่ของตัวเอง
+      if (emailChanged && moderation.isAdminEmail(email))
+        return res.status(400).json({ success: false, error: 'ใช้อีเมลนี้ไม่ได้' });
+
+      const or = [];
+      if (nameChanged) or.push({ username });
+      if (emailChanged) or.push({ email });
+      const taken = await db.users.findOne({ _id: { $ne: user._id }, $or: or }, { collation: CI, projection: { username: 1, email: 1 } });
+      if (taken) {
+        const sameName = nameChanged && taken.username.toLowerCase() === username.toLowerCase();
+        return res.status(409).json({ success: false, error: sameName ? 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' : 'อีเมลนี้มีคนใช้แล้ว' });
+      }
+
+      const update = { $set: { username, email } };
+      if (emailChanged) {
+        update.$set.email_verified = false;
+        update.$unset = { email_verified_at: '' };
+      }
+      await db.users.updateOne({ _id: user._id }, update);
+      const id = user._id.toString();
+      if (nameChanged) {
+        // ชื่อในแชทและแจ้งเตือนเก็บเป็นข้อความ — เปลี่ยนตามให้ด้วย
+        await db.messages.updateMany({ sender_id: id }, { $set: { sender_name: username } });
+        await db.notifications.updateMany({ from: user.username }, { $set: { from: username } });
+      }
+      let verifyEmailSent = false;
+      if (emailChanged) {
+        verifyEmailSent = await emailVerification.send(req, { ...user, username, email }).catch(() => false);
+        if (canSendEmail()) {
+          sendMail({
+            to: user.email,
+            subject: 'อีเมลของบัญชีถูกเปลี่ยน — KnowBridge',
+            text: `บัญชี KnowBridge ของคุณ (${username}) เปลี่ยนอีเมลเป็น ${email} แล้ว\nถ้าคุณไม่ได้เปลี่ยนเอง กรุณาติดต่อผู้ดูแลระบบ`
+          }).catch(() => {});
+        }
+      }
+      req.session.username = username;
+      req.session.isAdmin = moderation.isAdminEmail(email);
+      await endSessions(id, req.sessionID);
+      io.in('user:' + id).disconnectSockets(true); // socket เก่ายังจำชื่อเดิม — หน้าเว็บจะโหลดใหม่เอง
+      res.json({ success: true, username, email, verify_email_sent: verifyEmailSent });
+    } catch (e) {
+      if (e.code === 11000) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });
+      console.error('identity change error:', e);
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
+  // ===== ยืนยันอีเมล =====
+  router.post('/account/verify-email/send', requireLogin, limits.forgot, async (req, res) => {
+    try {
+      const user = await db.users.findOne({ _id: new ObjectId(req.session.userId) });
+      if (!user) return res.status(404).json({ success: false });
+      if (user.email_verified) return res.json({ success: true, already: true });
+      if (!emailFeaturesEnabled()) return res.status(400).json({ success: false, error: 'ระบบส่งอีเมลยังไม่เปิดใช้งาน' });
+      await emailVerification.send(req, user);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
+  router.post('/account/verify-email', limits.forgot, async (req, res) => {
+    try {
+      const user = await emailVerification.verify(req.body.token);
+      if (!user) return res.status(400).json({ success: false, error: 'ลิงก์ยืนยันไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว — ขอลิงก์ใหม่ได้ในโปรไฟล์' });
+      res.json({ success: true, email: user.email });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
     }

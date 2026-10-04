@@ -220,6 +220,7 @@ async function register() {
     await loadProfile();
     searchSkills();
     showProfile();
+    if (data.verify_email_sent) showToast(`📧 ส่งลิงก์ยืนยันไปที่ ${esc(email)} แล้ว<small>กดลิงก์ในอีเมลเพื่อยืนยัน (ใช้ได้ 24 ชั่วโมง)</small>`);
   } else {
     document.getElementById('reg-error').textContent = data.error;
   }
@@ -271,7 +272,13 @@ document.getElementById('password-form').addEventListener('submit', async (e) =>
 // ผู้ใช้ที่สมัครก่อนมีนโยบาย หรือนโยบายเปลี่ยนเวอร์ชัน → แถบให้กดรับทราบ
 function updatePrivacyBar(profile) {
   const outdated = !!profile?.user && !!profile.privacy_current && profile.user.privacy_version !== profile.privacy_current;
-  document.getElementById('privacy-bar').hidden = !outdated;
+  const bar = document.getElementById('privacy-bar');
+  bar.hidden = !outdated;
+  if (outdated) {
+    bar.querySelector('p').innerHTML = profile.user.privacy_version
+      ? 'เราปรับปรุง<a href="#privacy">นโยบายความเป็นส่วนตัว</a> เพิ่มเรื่องการยืนยันอีเมล การเปลี่ยนชื่อผู้ใช้/อีเมล และการเสนอทักษะใหม่'
+      : 'เราเพิ่ม<a href="#privacy">นโยบายความเป็นส่วนตัว</a> อธิบายว่าเก็บข้อมูลอะไร ใช้ทำอะไร และคุณดาวน์โหลดหรือลบข้อมูลของตัวเองได้อย่างไร';
+  }
 }
 
 async function ackPrivacy() {
@@ -307,9 +314,102 @@ document.getElementById('delete-form').addEventListener('submit', async (e) => {
 
 function showDeletedNotice() {
   let deleted = false;
-  try { deleted = sessionStorage.getItem('kb-deleted') === '1'; sessionStorage.removeItem('kb-deleted'); } catch (e) {}
+  let notice = null;
+  try {
+    deleted = sessionStorage.getItem('kb-deleted') === '1';
+    notice = sessionStorage.getItem('kb-notice');
+    sessionStorage.removeItem('kb-deleted');
+    sessionStorage.removeItem('kb-notice');
+  } catch (e) {}
   if (deleted) showToast('ลบบัญชีและข้อมูลของคุณเรียบร้อยแล้ว<small>ขอบคุณที่ใช้ KnowBridge</small>');
+  // ข้อความที่เราเขียนเอง แต่มีอีเมลที่ผู้ใช้พิมพ์ปนอยู่ — escape ก่อนแสดง ยกเว้นแท็ก <small>
+  if (notice) showToast(esc(notice).replace(/&lt;(\/?)small&gt;/g, '<$1small>'));
 }
+
+// ===== ยืนยันอีเมล / เปลี่ยนชื่อผู้ใช้และอีเมล =====
+function renderEmailStatus(profile) {
+  const el = document.getElementById('email-status');
+  if (profile.user.email_verified) {
+    el.innerHTML = '<span class="verified-badge">✓ ยืนยันแล้ว</span>';
+  } else if (profile.email_verification_enabled) {
+    el.innerHTML = '<span class="unverified-badge">ยังไม่ยืนยัน</span> <button type="button" class="btn btn-ghost btn-sm" onclick="resendVerification(this)">ส่งลิงก์ยืนยัน</button>';
+  } else {
+    el.innerHTML = '';
+  }
+  document.getElementById('identity-email-hint').hidden = !profile.email_verification_enabled;
+}
+
+async function resendVerification(btn) {
+  btn.disabled = true;
+  const res = await fetch('/api/account/verify-email/send', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (data.already) { showToast('อีเมลนี้ยืนยันแล้ว'); return loadProfile(); }
+  if (!data.success) { btn.disabled = false; return showToast(esc(data.error || 'ส่งลิงก์ไม่สำเร็จ')); }
+  btn.textContent = 'ส่งแล้ว';
+  showToast('📧 ส่งลิงก์ยืนยันแล้ว<small>เช็กกล่องจดหมาย (และโฟลเดอร์สแปม) ลิงก์ใช้ได้ 24 ชั่วโมง</small>');
+}
+
+async function verifyEmailToken(token) {
+  const res = await fetch('/api/account/verify-email', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token })
+  });
+  const data = await res.json().catch(() => ({}));
+  showToast(data.success ? `✅ ยืนยันอีเมล ${esc(data.email)} แล้ว` : esc(data.error || 'ยืนยันอีเมลไม่สำเร็จ'));
+  if (data.success && currentUserId) loadProfile();
+}
+
+document.getElementById('identity-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('identity-msg');
+  const username = document.getElementById('identity-username').value.trim();
+  const email = document.getElementById('identity-email').value.trim();
+  const password = document.getElementById('identity-password').value;
+  if (!username || !email) return (msg.textContent = 'กรุณากรอกชื่อผู้ใช้และอีเมล');
+  if (!password) return (msg.textContent = 'กรุณาใส่รหัสผ่านปัจจุบันเพื่อยืนยัน');
+  const res = await fetch('/api/account/identity', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, email, password })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) return (msg.textContent = data.error || 'บันทึกไม่สำเร็จ');
+  // ชื่อเดิมยังค้างอยู่ทั้งหน้า (navbar, แชท, socket) — โหลดหน้าใหม่ให้ทุกอย่างใช้ชื่อใหม่
+  try {
+    sessionStorage.setItem('kb-notice', data.verify_email_sent
+      ? `บันทึกแล้ว<small>ส่งลิงก์ยืนยันไปที่ ${data.email} แล้ว</small>`
+      : 'บันทึกชื่อผู้ใช้/อีเมลใหม่แล้ว');
+  } catch (err) {}
+  location.reload();
+});
+
+// ===== เสนอทักษะใหม่ =====
+async function loadMySuggestions() {
+  const res = await fetch('/api/skills/suggestions/mine');
+  const list = res.ok ? await res.json() : [];
+  document.getElementById('my-suggestions').innerHTML = list.length
+    ? `<span class="muted">รอแอดมินตรวจ:</span> ${list.map(r => `
+        <span class="skill-pill pending-pill ${r.type}">⏳ ${esc(r.name)} <small>${r.type === 'teach' ? 'สอนได้' : 'อยากเรียน'}</small></span>`).join('')}`
+    : '';
+}
+
+document.getElementById('suggest-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('suggest-msg');
+  const name = document.getElementById('suggest-name').value.trim();
+  const category = document.getElementById('suggest-category').value;
+  const type = e.target.querySelector('input[name="suggest-type"]:checked').value;
+  if ([...name].length < 2) return (msg.textContent = 'กรุณาพิมพ์ชื่อทักษะ (อย่างน้อย 2 ตัวอักษร)');
+  if (!category) return (msg.textContent = 'กรุณาเลือกหมวด');
+  const res = await fetch('/api/skills/suggest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, category, type })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) return (msg.textContent = data.error || 'ส่งไม่สำเร็จ');
+  msg.textContent = '';
+  e.target.reset();
+  document.getElementById('suggest-section').open = false;
+  showToast(`🧩 ส่ง "${esc(data.request.name)}" ให้แอดมินตรวจแล้ว` +
+    (data.joined ? '<small>มีคนเสนอทักษะนี้ไว้แล้ว นับเป็นอีกเสียงให้</small>' : '<small>อนุมัติแล้วจะเพิ่มเข้าโปรไฟล์ให้เลย</small>'));
+  loadMySuggestions();
+});
 
 let privacyInfoLoaded = false;
 async function loadPrivacyInfo() {
@@ -388,7 +488,10 @@ const NOTIFY_TEXT = {
     ? `📅 <b>${esc(n.from)}</b> นัดเรียน ${esc(fmtDateTime(n.schedule_at))}${n.preview ? `<small>${esc(n.preview)}</small>` : ''}`
     : `📅 <b>${esc(n.from)}</b> ยกเลิกนัดเรียน`,
   complete_request: (n) => `🎓 <b>${esc(n.from)}</b> ยืนยันว่าแลกเปลี่ยนเสร็จแล้ว<small>กดยืนยันด้วย แล้วให้คะแนนกันได้</small>`,
-  completed: (n) => `🎉 การแลกเปลี่ยนกับ <b>${esc(n.from)}</b> เสร็จสมบูรณ์<small>ให้คะแนนกันได้เลย</small>`
+  completed: (n) => `🎉 การแลกเปลี่ยนกับ <b>${esc(n.from)}</b> เสร็จสมบูรณ์<small>ให้คะแนนกันได้เลย</small>`,
+  skill_approved: (n) => `🧩 ทักษะ <b>${esc(n.skill_name)}</b> ที่คุณเสนอได้รับอนุมัติแล้ว` +
+    `<small>${n.added ? 'เพิ่มเข้าโปรไฟล์ให้แล้ว' : 'เลือกเพิ่มในโปรไฟล์ได้เลย'}</small>`,
+  skill_rejected: (n) => `ทักษะ <b>${esc(n.skill_name)}</b> ที่คุณเสนอไม่ได้รับอนุมัติ<small>อาจซ้ำกับทักษะที่มีอยู่ หรือกว้าง/แคบเกินไป</small>`
 };
 
 const notificationHtml = (n) => (NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n);
@@ -397,6 +500,7 @@ const notificationHtml = (n) => (NOTIFY_TEXT[n.type] || (() => esc(n.type)))(n);
 async function openNotification(n) {
   if (n.type === 'message') { await showDashboard(); openChat(n.request_id); }
   else if (n.type === 'like' || n.type === 'comment') goToPost(n.post_id);
+  else if (n.type === 'skill_approved' || n.type === 'skill_rejected') showProfile();
   else showDashboard();
 }
 
@@ -432,6 +536,11 @@ function markChatRead(requestId) {
 
 async function handleNotify(n) {
   if (n.type === 'like' || n.type === 'comment') bumpPostCount(n);
+  // ทักษะที่เสนอผ่านแล้ว → โปรไฟล์ที่เปิดอยู่ต้องเห็นทักษะใหม่ในรายการ
+  if ((n.type === 'skill_approved' || n.type === 'skill_rejected') && document.getElementById('modal-profile').style.display !== 'none') {
+    loadSkillOptions();
+    loadMySuggestions();
+  }
   if (n.type === 'message' && isChatOpen(n.request_id)) {
     // กำลังเปิดแชทนี้อยู่ ข้อความขึ้นในหน้าต่างแล้ว แค่บันทึกว่าอ่านแล้ว
     await markChatRead(n.request_id);
@@ -539,8 +648,11 @@ async function loadProfile() {
     document.getElementById('profile-email').textContent = data.user.email;
     document.getElementById('profile-bio').value = data.user.bio || '';
     updatePrivacyBar(data);
+    renderEmailStatus(data);
+    document.getElementById('identity-username').value = data.user.username;
+    document.getElementById('identity-email').value = data.user.email;
     // รอให้รีวิว/รายการบล็อกโหลดเสร็จ ความสูงของโปรไฟล์จะได้นิ่ง (openMyData เลื่อนลงไปส่วนล่างต่อ)
-    await Promise.all([loadMyReviews(data.user._id), loadBlockedList()]);
+    await Promise.all([loadMyReviews(data.user._id), loadBlockedList(), loadMySuggestions()]);
   }
 }
 
@@ -614,7 +726,7 @@ async function showUserProfile(userId) {
     <div class="profile-head">
       ${avatar(user.username, 'lg')}
       <div>
-        <h2>${esc(user.username)} ${user.banned ? '<span class="banned-badge">ถูกระงับ</span>' : ''}</h2>
+        <h2>${esc(user.username)} ${user.email_verified ? '<span class="verified-badge" title="ยืนยันอีเมลแล้ว">✓ ยืนยันอีเมล</span>' : ''} ${user.banned ? '<span class="banned-badge">ถูกระงับ</span>' : ''}</h2>
         <p class="rating">${ratingHtml(rating.avg, rating.count)}</p>
       </div>
     </div>
@@ -1175,13 +1287,74 @@ document.getElementById('blocked-list').addEventListener('click', (e) => {
 const TYPE_LABEL = { post: 'โพสต์', comment: 'ความคิดเห็น', user: 'ผู้ใช้' };
 let adminItems = [];
 
+let adminSkillRequests = [];
+let adminTab = 'reports';
+
 async function refreshAdminBadge() {
-  const res = await fetch('/api/admin/reports');
-  if (!res.ok) return;
-  adminItems = await res.json();
-  document.getElementById('admin-badge').textContent = adminItems.length || '';
+  const [reportsRes, skillsRes] = await Promise.all([fetch('/api/admin/reports'), fetch('/api/admin/skill-requests')]);
+  if (!reportsRes.ok) return;
+  adminItems = await reportsRes.json();
+  adminSkillRequests = skillsRes.ok ? await skillsRes.json() : [];
+  document.getElementById('admin-badge').textContent = (adminItems.length + adminSkillRequests.length) || '';
+  document.getElementById('count-reports').textContent = adminItems.length || '';
+  document.getElementById('count-skills').textContent = adminSkillRequests.length || '';
   return adminItems;
 }
+
+function switchAdminTab(tab) {
+  adminTab = tab;
+  document.querySelectorAll('#modal-admin .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('admin-list').hidden = tab !== 'reports';
+  document.getElementById('admin-skills').hidden = tab !== 'skills';
+}
+
+const CATEGORY_KEYS = ['IT', 'Language', 'Art', 'Music', 'Other'];
+
+function renderSkillRequest(r, i) {
+  return `
+    <div class="request" data-i="${i}">
+      <div class="request-top">
+        <span class="status pending">${r.count} เสียง</span>
+        <div style="flex:1;min-width:0">
+          <b>${esc(r.name)}</b> <span class="muted">· ${esc(categoryLabel(r.category))}</span>
+          <p class="report-preview">เสนอโดย ${r.users.map(esc).join(', ') || '—'}</p>
+        </div>
+      </div>
+      <div class="suggest-row admin-skill-edit">
+        <label class="field"><span>ชื่อที่จะเพิ่ม</span><input class="input" data-field="name" maxlength="40" value="${esc(r.name)}" /></label>
+        <label class="field"><span>หมวด</span><select class="input" data-field="category">
+          ${CATEGORY_KEYS.map(c => `<option value="${c}" ${c === r.category ? 'selected' : ''}>${esc(categoryLabel(c))}</option>`).join('')}
+        </select></label>
+      </div>
+      <div class="request-actions">
+        <button class="btn btn-primary btn-sm" data-skill="approve">อนุมัติ</button>
+        <button class="btn btn-ghost btn-sm" data-skill="reject">ไม่อนุมัติ</button>
+      </div>
+    </div>`;
+}
+
+document.getElementById('admin-skills').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-skill]');
+  if (!btn) return;
+  const item = btn.closest('[data-i]');
+  const r = adminSkillRequests[item.dataset.i];
+  const action = btn.dataset.skill;
+  const body = { action };
+  if (action === 'approve') {
+    body.name = item.querySelector('[data-field="name"]').value.trim();
+    body.category = item.querySelector('[data-field="category"]').value;
+  } else if (!confirm(`ไม่อนุมัติ "${r.name}"?`)) return;
+  btn.disabled = true;
+  const res = await fetch(`/api/admin/skill-requests/${r._id}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!data.success) { btn.disabled = false; return showToast(esc(data.error || 'ทำรายการไม่สำเร็จ')); }
+  showToast(action === 'approve'
+    ? `เพิ่มทักษะ "${esc(data.skill.name)}" แล้ว<small>ใส่ในโปรไฟล์คนเสนอให้ ${data.added} คน</small>`
+    : 'ไม่อนุมัติแล้ว แจ้งคนเสนอให้แล้ว');
+  showAdmin();
+});
 
 function renderReportItem(r, i) {
   const owner = r.owner;
@@ -1217,6 +1390,10 @@ async function showAdmin() {
   list.innerHTML = items.length
     ? items.map(renderReportItem).join('')
     : '<div class="empty"><b>ไม่มีรายงานค้างอยู่ 🎉</b>ชุมชนเรียบร้อยดี</div>';
+  document.getElementById('admin-skills').innerHTML = adminSkillRequests.length
+    ? adminSkillRequests.map(renderSkillRequest).join('')
+    : '<div class="empty"><b>ไม่มีทักษะที่รอตรวจ</b>ผู้ใช้เสนอทักษะใหม่ได้จากหน้าโปรไฟล์</div>';
+  switchAdminTab(adminTab);
 }
 
 function closeAdmin() {
@@ -1738,6 +1915,11 @@ function focusPendingPost() {
 
 // ===== สลับหน้า: หน้าแรก ↔ ชุมชน ↔ นโยบาย (ใช้ # ใน URL จะได้กด back/แชร์ลิงก์ได้) =====
 function route() {
+  if (location.hash.startsWith('#verify=')) {
+    const token = location.hash.slice('#verify='.length);
+    history.replaceState(null, '', location.pathname); // ไม่ให้ token ค้างใน URL/ประวัติ
+    verifyEmailToken(token);
+  }
   if (location.hash.startsWith('#reset=')) {
     resetToken = location.hash.slice('#reset='.length);
     history.replaceState(null, '', location.pathname); // ไม่ให้ token ค้างใน URL/ประวัติ

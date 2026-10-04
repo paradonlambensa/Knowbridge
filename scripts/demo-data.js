@@ -18,7 +18,7 @@ const { DEMO_EMAILS } = require('../lib/demoAccounts');
 const { connectWithDnsFallback } = require('../lib/dnsFallback');
 
 const COLLECTIONS = ['users', 'skills', 'user_skills', 'exchange_requests', 'reviews', 'messages',
-  'posts', 'comments', 'reports', 'blocks', 'notifications', 'password_resets'];
+  'posts', 'comments', 'reports', 'blocks', 'notifications', 'password_resets', 'skill_requests', 'email_verifications'];
 const CI = { locale: 'en', strength: 2 };
 const SEED = { demo_seed: true };
 

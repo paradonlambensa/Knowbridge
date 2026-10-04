@@ -35,6 +35,8 @@ async function connectDB() {
     db.blocks            = database.collection('blocks');
     db.notifications     = database.collection('notifications');
     db.password_resets   = database.collection('password_resets');
+    db.skill_requests    = database.collection('skill_requests');
+    db.email_verifications = database.collection('email_verifications');
     db.sessions          = database.collection('sessions'); // ของ connect-mongo — ใช้ลบ session ตอนเปลี่ยนรหัส
 
     await Promise.all([
@@ -57,6 +59,10 @@ async function connectDB() {
       db.notifications.createIndex({ created_at: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }),
       db.password_resets.createIndex({ token_hash: 1 }, { unique: true }),
       db.password_resets.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+      db.skill_requests.createIndex({ status: 1, _id: -1 }),
+      db.skill_requests.createIndex({ 'requests.user_id': 1 }),
+      db.email_verifications.createIndex({ token_hash: 1 }, { unique: true }),
+      db.email_verifications.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
     ]);
     // อีเมล/ชื่อซ้ำกันไม่ได้ (Test@x กับ test@x นับเป็นอันเดียวกัน) — ถ้าข้อมูลเก่ามีซ้ำอยู่แล้ว
     // index จะสร้างไม่ได้ แต่ระบบยังทำงานต่อ (ฝั่ง register เช็กซ้ำให้อยู่แล้ว)
@@ -64,6 +70,9 @@ async function connectDB() {
       await db.users.createIndex({ [field]: 1 }, { unique: true, collation: CI, name: `${field}_ci_unique` })
         .catch(e => console.warn(`⚠️ สร้าง unique index ของ ${field} ไม่ได้ (มีข้อมูลซ้ำอยู่?):`, e.message));
     }
+    // ชื่อทักษะซ้ำกันไม่ได้ (แอดมินอนุมัติทักษะที่ผู้ใช้เสนอ)
+    await db.skills.createIndex({ name: 1 }, { unique: true, collation: CI, name: 'name_ci_unique' })
+      .catch(e => console.warn('⚠️ สร้าง unique index ของชื่อทักษะไม่ได้:', e.message));
 
     // ✅ รัน seed แยกกันทีละตัว ไม่ผูกกัน
     await seedSkills();

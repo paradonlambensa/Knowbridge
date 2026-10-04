@@ -177,7 +177,7 @@
       <article class="container legal">
         <p class="eyebrow">PDPA</p>
         <h1>นโยบายความเป็นส่วนตัว</h1>
-        <p class="muted">ปรับปรุงล่าสุด <span id="privacy-updated">3 ตุลาคม 2569</span></p>
+        <p class="muted">ปรับปรุงล่าสุด <span id="privacy-updated">5 ตุลาคม 2569</span></p>
 
         <div class="legal-summary">
           <b>สรุปสั้น ๆ</b>
@@ -194,8 +194,8 @@
 
         <h2>2. ข้อมูลที่เราเก็บ</h2>
         <ul>
-          <li><b>บัญชี</b> — ชื่อผู้ใช้ อีเมล รหัสผ่าน (เก็บเป็น hash ด้วย bcrypt) วันที่สมัคร และวันที่ยอมรับนโยบายนี้</li>
-          <li><b>โปรไฟล์</b> — คำแนะนำตัว ทักษะที่สอนได้และอยากเรียน</li>
+          <li><b>บัญชี</b> — ชื่อผู้ใช้ อีเมลและสถานะการยืนยันอีเมล รหัสผ่าน (เก็บเป็น hash ด้วย bcrypt) วันที่สมัคร และวันที่ยอมรับนโยบายนี้</li>
+          <li><b>โปรไฟล์</b> — คำแนะนำตัว ทักษะที่สอนได้และอยากเรียน และทักษะใหม่ที่คุณเสนอให้เพิ่ม</li>
           <li><b>การแลกเปลี่ยน</b> — คำขอและข้อความในคำขอ ข้อความแชท นัดหมาย (วันเวลา สถานที่หรือลิงก์) สถานะ และรีวิว</li>
           <li><b>ชุมชน</b> — โพสต์ แฮชแท็ก ความคิดเห็น และการกดถูกใจ</li>
           <li><b>ความปลอดภัย</b> — การรายงาน การบล็อก และการแจ้งเตือน</li>
@@ -209,15 +209,17 @@
         <ul>
           <li><b>ให้บริการตามที่คุณสมัคร</b> (ฐานสัญญา) — สร้างบัญชี ค้นหาและแนะนำคู่แลกเปลี่ยน ส่งคำขอ แชท นัดหมาย รีวิว ฟีดชุมชน และแจ้งเตือน</li>
           <li><b>รักษาความปลอดภัยและดูแลชุมชน</b> (ฐานประโยชน์โดยชอบด้วยกฎหมาย) — จำกัดจำนวนครั้ง กันสแปม ตรวจรายงาน และระงับบัญชีที่ทำผิดกติกา</li>
-          <li><b>ส่งอีเมลตั้งรหัสผ่านใหม่</b> — เฉพาะเมื่อคุณกด “ลืมรหัสผ่าน”</li>
+          <li><b>ส่งอีเมลถึงคุณ</b> — ลิงก์ยืนยันอีเมลตอนสมัครหรือเปลี่ยนอีเมล, ลิงก์ตั้งรหัสผ่านใหม่เมื่อกด “ลืมรหัสผ่าน”
+            และแจ้งไปที่อีเมลเดิมเมื่อมีการเปลี่ยนอีเมล</li>
         </ul>
         <p>เราไม่ใช้ข้อมูลของคุณทำการตลาด โฆษณา หรือขายต่อให้ใคร</p>
 
         <h2>4. ใครเห็นข้อมูลอะไรบ้าง</h2>
         <ul>
-          <li><b>ทุกคน</b> (รวมคนที่ไม่ได้เข้าสู่ระบบ) — ชื่อผู้ใช้ คำแนะนำตัว ทักษะ คะแนนและรีวิว โพสต์ ความคิดเห็น และจำนวนถูกใจ</li>
+          <li><b>ทุกคน</b> (รวมคนที่ไม่ได้เข้าสู่ระบบ) — ชื่อผู้ใช้ คำแนะนำตัว ทักษะ คะแนนและรีวิว โพสต์ ความคิดเห็น จำนวนถูกใจ
+            และป้าย “ยืนยันอีเมลแล้ว” (ไม่แสดงตัวอีเมล)</li>
           <li><b>คู่แลกเปลี่ยนของคุณ</b> — ข้อความในคำขอ แชท และนัดหมาย</li>
-          <li><b>ผู้ดูแลระบบ</b> — เนื้อหาที่ถูกรายงาน และจัดการบัญชีที่ทำผิดกติกา</li>
+          <li><b>ผู้ดูแลระบบ</b> — เนื้อหาที่ถูกรายงาน ทักษะที่ผู้ใช้เสนอ (พร้อมชื่อผู้เสนอ) และจัดการบัญชีที่ทำผิดกติกา</li>
           <li><b>อีเมล</b> — ไม่แสดงให้ผู้ใช้คนอื่นเห็น</li>
         </ul>
 
@@ -234,7 +236,7 @@
         <ul>
           <li>บัญชีและเนื้อหา — จนกว่าคุณจะลบบัญชี หรือลบโพสต์/ความคิดเห็นนั้นเอง</li>
           <li>การแจ้งเตือน — ลบอัตโนมัติหลัง 30 วัน</li>
-          <li>ลิงก์ตั้งรหัสผ่านใหม่ — หมดอายุใน 30 นาที ใช้ได้ครั้งเดียว</li>
+          <li>ลิงก์ตั้งรหัสผ่านใหม่ — หมดอายุใน 30 นาที / ลิงก์ยืนยันอีเมล — หมดอายุใน 24 ชั่วโมง ใช้ได้ครั้งเดียวทั้งคู่</li>
           <li>การเข้าสู่ระบบ — หมดอายุภายใน 24 ชั่วโมง</li>
           <li>บัญชีที่ถูกระงับเพราะทำผิดกติกา — เก็บไว้เพื่อการตรวจสอบ เจ้าของบัญชีติดต่อขอลบได้</li>
         </ul>
@@ -257,7 +259,7 @@
         <h2>9. สิทธิของคุณ</h2>
         <ul>
           <li><b>ขอเข้าถึงและรับสำเนาข้อมูล</b> — กด “ดาวน์โหลดข้อมูลของฉัน” ในโปรไฟล์ ได้ไฟล์ JSON ที่นำไปใช้ต่อได้</li>
-          <li><b>แก้ไขข้อมูลให้ถูกต้อง</b> — แก้คำแนะนำตัว ทักษะ และรหัสผ่านได้ในโปรไฟล์ (เปลี่ยนชื่อผู้ใช้หรืออีเมล ติดต่อเรา)</li>
+          <li><b>แก้ไขข้อมูลให้ถูกต้อง</b> — แก้ชื่อผู้ใช้ อีเมล คำแนะนำตัว ทักษะ และรหัสผ่านได้เองในโปรไฟล์</li>
           <li><b>ลบข้อมูล</b> — กด “ลบบัญชี” ในโปรไฟล์ หรือลบโพสต์และความคิดเห็นทีละรายการ</li>
           <li><b>คัดค้าน หรือขอให้ระงับการใช้ข้อมูล</b> — ติดต่อเรา</li>
           <li><b>ถอนความยินยอม</b> — ลบบัญชีได้ทุกเมื่อ</li>
@@ -359,12 +361,50 @@
         <button class="icon-btn" onclick="closeProfile()" aria-label="ปิด">✕</button>
       </div>
       <div class="field"><span>ชื่อผู้ใช้</span><p id="profile-username" class="readonly-value"></p></div>
-      <div class="field"><span>อีเมล</span><p id="profile-email" class="readonly-value muted"></p></div>
+      <div class="field"><span>อีเมล</span><p class="readonly-value muted"><span id="profile-email"></span> <span id="email-status"></span></p></div>
       <label class="field"><span>แนะนำตัว</span><textarea class="input" id="profile-bio" rows="3" placeholder="เช่น เรียนปี 2 ชอบเขียนโปรแกรม ว่างเย็นวันธรรมดา"></textarea></label>
       <div class="field"><span>ฉันสอนได้ <small class="muted">(สูงสุด 5)</small></span><div class="skill-picker" id="picker-teach" data-type="teach"></div></div>
       <div class="field"><span>ฉันอยากเรียน <small class="muted">(สูงสุด 5)</small></span><div class="skill-picker" id="picker-learn" data-type="learn"></div></div>
+      <div id="my-suggestions" class="my-suggestions"></div>
+      <details class="pw-section suggest-section" id="suggest-section">
+        <summary>ไม่เจอทักษะที่ต้องการ? เสนอทักษะใหม่</summary>
+        <form id="suggest-form">
+          <p class="muted small-text">แอดมินจะตรวจก่อนเพิ่มเข้ารายการ — อนุมัติแล้วระบบใส่ในโปรไฟล์ให้เลย</p>
+          <div class="suggest-row">
+            <label class="field"><span>ชื่อทักษะ</span><input class="input" id="suggest-name" maxlength="40" placeholder="เช่น Excel, ภาษาเยอรมัน, ถักไหมพรม" /></label>
+            <label class="field"><span>หมวด</span><select class="input" id="suggest-category">
+              <option value="">เลือกหมวด</option>
+              <option value="IT">ไอที</option>
+              <option value="Language">ภาษา</option>
+              <option value="Art">ศิลปะ</option>
+              <option value="Music">ดนตรี</option>
+              <option value="Other">อื่น ๆ</option>
+            </select></label>
+          </div>
+          <div class="field"><span>ทักษะนี้คุณ…</span>
+            <div class="seg" role="radiogroup">
+              <label><input type="radio" name="suggest-type" value="teach" checked /><span>สอนได้</span></label>
+              <label><input type="radio" name="suggest-type" value="learn" /><span>อยากเรียน</span></label>
+            </div>
+          </div>
+          <button class="btn btn-outline btn-block" type="submit">ส่งให้แอดมินตรวจ</button>
+          <p id="suggest-msg" class="form-msg error-msg"></p>
+        </form>
+      </details>
       <button class="btn btn-primary btn-block" onclick="saveProfile()">บันทึก</button>
       <p id="profile-msg" class="form-msg"></p>
+      <details class="pw-section" id="identity-section">
+        <summary>เปลี่ยนชื่อผู้ใช้หรืออีเมล</summary>
+        <form id="identity-form">
+          <label class="field"><span>ชื่อผู้ใช้</span><input class="input" id="identity-username" maxlength="20" autocomplete="username" />
+            <small class="field-hint">3–20 ตัว ใช้ตัวอักษร ตัวเลข และ _ . - ได้</small></label>
+          <label class="field"><span>อีเมล</span><input class="input" type="email" id="identity-email" autocomplete="email" />
+            <small class="field-hint" id="identity-email-hint">เปลี่ยนอีเมลแล้วต้องยืนยันอีเมลใหม่อีกครั้ง</small></label>
+          <label class="field"><span>รหัสผ่านปัจจุบัน</span><input class="input" type="password" id="identity-password" autocomplete="current-password" /></label>
+          <button class="btn btn-outline btn-block" type="submit">บันทึกการเปลี่ยนแปลง</button>
+          <p id="identity-msg" class="form-msg error-msg"></p>
+        </form>
+      </details>
       <details class="pw-section" id="pw-section">
         <summary>เปลี่ยนรหัสผ่าน</summary>
         <form id="password-form">
@@ -516,10 +556,15 @@
   <div id="modal-admin" class="modal-overlay" style="display:none">
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h2>รายงานที่รอตรวจสอบ</h2>
+        <h2>แอดมิน</h2>
         <button class="icon-btn" onclick="closeAdmin()" aria-label="ปิด">✕</button>
       </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="reports" role="tab" onclick="switchAdminTab('reports')">รายงาน<span class="count" id="count-reports"></span></button>
+        <button class="tab" data-tab="skills" role="tab" onclick="switchAdminTab('skills')">ทักษะที่เสนอ<span class="count" id="count-skills"></span></button>
+      </div>
       <div id="admin-list" class="request-list"></div>
+      <div id="admin-skills" class="request-list" hidden></div>
     </div>
   </div>
 

@@ -7,7 +7,9 @@
     "start": "node server.js",
     "test": "node test/e2e.js",
     "demo:add": "node scripts/demo-data.js add",
-    "demo:remove": "node scripts/demo-data.js remove"
+    "demo:remove": "node scripts/demo-data.js remove",
+    "backup": "node scripts/backup.js backup",
+    "restore": "node scripts/backup.js restore"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +25,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
     "mongodb": "^7.1.1",
     "socket.io": "^4.8.3"
   }
