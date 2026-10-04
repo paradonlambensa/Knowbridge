@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs/promises');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const { MongoStore } = require('connect-mongo');
@@ -31,7 +33,22 @@ if ((process.env.RENDER || process.env.NODE_ENV === 'production') && !process.en
 app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+
+// หน้าแรก: ใส่ URL เต็มของเว็บลงใน meta การ์ดแชร์ลิงก์ (LINE/Facebook ต้องการลิงก์รูปแบบเต็ม)
+// ใช้ได้ทุกโดเมนโดยไม่ต้องแก้ไฟล์ — Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ
+const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+app.get(['/', '/index.html'], async (req, res, next) => {
+  try {
+    const host = req.get('host') || '';
+    const origin = process.env.APP_URL
+      || (/^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${req.protocol}://${host}` : '');
+    const html = await fs.readFile(INDEX_PATH, 'utf8');
+    res.type('html').send(html.replaceAll('__ORIGIN__', origin.replace(/\/$/, '')));
+  } catch (e) {
+    next(e);
+  }
+});
+app.use(express.static('public', { index: false }));
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'knowbridge-secret-2024',
   resave: false,

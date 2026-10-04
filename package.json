@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/e2e.js"
+    "test": "node test/e2e.js",
+    "demo:add": "node scripts/demo-data.js add",
+    "demo:remove": "node scripts/demo-data.js remove"
   },
   "keywords": [],
   "author": "",

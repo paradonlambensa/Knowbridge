@@ -3,6 +3,7 @@
 //   BASE_URL=http://... npm test     → ทดสอบกับ server ที่เปิดอยู่แล้ว (ข้ามเทส restart)
 // สร้างบัญชีใหม่ทุกครั้งที่รัน จึงรันซ้ำได้โดยไม่ต้องล้างข้อมูล
 const { spawn } = require('child_process');
+const http = require('http');
 const path = require('path');
 
 const PORT = process.env.TEST_PORT || 3999;
@@ -580,6 +581,17 @@ async function run() {
     const r = await post(demoUser, '/api/account/delete', { password: 'demo1234' });
     check('บัญชีทดลองลบไม่ได้', r.status === 403, `${r.status} ${await r.text()}`);
   }
+
+  // --- การ์ดแชร์ลิงก์ ---
+  const home = await (await fetch(BASE + '/')).text();
+  check('หน้าแรกมี og:image เป็น URL เต็ม', home.includes(`property="og:image" content="${BASE}/image/og-image.jpg"`) && !home.includes('__ORIGIN__'));
+  check('รูปการ์ดแชร์โหลดได้', (await fetch(BASE + '/image/og-image.jpg')).headers.get('content-type') === 'image/jpeg');
+  const evilHome = await new Promise((resolve, reject) => {
+    http.get(BASE + '/', { headers: { Host: 'evil.test"><script>x</script>' } }, (r) => {
+      let body = ''; r.on('data', d => (body += d)); r.on('end', () => resolve(body));
+    }).on('error', reject);
+  });
+  check('Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ', !evilHome.includes('<script>x') && !evilHome.includes('__ORIGIN__'));
 
   // --- id ไม่ถูกต้อง ---
   check('profile id มั่ว → 404', (await api(null, '/api/user/xyz/profile')).status === 404);
