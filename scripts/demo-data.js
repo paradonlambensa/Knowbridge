@@ -15,6 +15,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 const { extractTags } = require('../routes/posts');
 const { PRIVACY_VERSION, deleteUserData } = require('../lib/accountData');
 const { DEMO_EMAILS } = require('../lib/demoAccounts');
+const { connectWithDnsFallback } = require('../lib/dnsFallback');
 
 const COLLECTIONS = ['users', 'skills', 'user_skills', 'exchange_requests', 'reviews', 'messages',
   'posts', 'comments', 'reports', 'blocks', 'notifications', 'password_resets'];
@@ -269,7 +270,7 @@ async function remove(db) {
   }
   const client = new MongoClient(process.env.MONGODB_URI);
   try {
-    await client.connect();
+    await connectWithDnsFallback(client);
     const database = client.db(dbName);
     const db = Object.fromEntries(COLLECTIONS.map(n => [n, database.collection(n)]));
     console.log(`ฐานข้อมูล: ${dbName}`);

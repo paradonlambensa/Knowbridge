@@ -150,6 +150,7 @@ Knowbridge/
 ├── lib/accountRules.js ← กติกาชื่อผู้ใช้ อีเมล รหัสผ่าน
 ├── lib/accountData.js ← PDPA: เวอร์ชันนโยบาย, รวมข้อมูลให้ดาวน์โหลด, ลบบัญชีพร้อมข้อมูลที่ผูกอยู่
 ├── lib/demoAccounts.js ← รายชื่ออีเมลบัญชีทดลอง
+├── lib/dnsFallback.js ← เชื่อม Atlas ได้แม้ DNS ของเครื่องไม่ตอบ SRV (querySrv ECONNREFUSED) — ลองใหม่ด้วย DNS สาธารณะ
 ├── scripts/demo-data.js ← เพิ่ม/ลบข้อมูลตัวอย่างสำหรับวันพรีเซนต์ (`npm run demo:add` / `demo:remove`)
 ├── routes/account.js  ← เปลี่ยนรหัส / ลืมรหัส / ตั้งรหัสใหม่ / ดาวน์โหลดข้อมูล / ลบบัญชี
 ├── routes/notifications.js ← รายการแจ้งเตือนของกระดิ่ง

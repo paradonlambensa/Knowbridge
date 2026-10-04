@@ -12,13 +12,14 @@ const db = {};
 // Render ตั้ง RENDER=true ให้อัตโนมัติ
 const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER;
 const { DEMO_EMAILS } = require('./lib/demoAccounts');
+const { connectWithDnsFallback } = require('./lib/dnsFallback');
 const demoEnabled = process.env.DEMO_ACCOUNTS ? process.env.DEMO_ACCOUNTS === 'on' : !isProduction;
 // เทียบอีเมล/ชื่อผู้ใช้แบบไม่สนตัวพิมพ์เล็ก-ใหญ่
 const CI = { locale: 'en', strength: 2 };
 
 async function connectDB() {
   try {
-    await client.connect();
+    await connectWithDnsFallback(client);
     console.log(`✅ Connected to MongoDB Atlas (db: ${dbName})`);
     const database = client.db(dbName);
 
