@@ -1,5 +1,5 @@
 // ===== กติกาบัญชี — ใช้ทั้งตอนสมัคร เปลี่ยนรหัส และรีเซ็ตรหัส =====
-// ต้องตรงกับคำแนะนำในหน้าสมัคร (public/index.html) และการเช็กฝั่ง client (public/js/app.js)
+// ต้องตรงกับคำแนะนำในหน้าสมัคร (frontend/index.html) และการเช็กฝั่ง client (frontend/js/app.js)
 const USERNAME_RE = /^[\p{L}\p{M}\p{N}_.-]{3,20}$/u;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const WEAK_PASSWORDS = new Set(['12345678', '123456789', '1234567890', 'password', 'password1', 'qwertyui', '11111111', '00000000', 'abcdefgh']);

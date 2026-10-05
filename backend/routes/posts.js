@@ -4,7 +4,7 @@ const express = require('express');
 const POST_MAX = 500;
 const COMMENT_MAX = 300;
 const PAGE_MAX = 50;
-// ต้องตรงกับฝั่ง client (public/js/app.js) — \p{M} สำหรับสระ/วรรณยุกต์ภาษาไทย
+// ต้องตรงกับฝั่ง client (frontend/js/app.js) — \p{M} สำหรับสระ/วรรณยุกต์ภาษาไทย
 // แท็กต้องขึ้นต้นบรรทัดหรือตามหลังช่องว่าง/เครื่องหมาย (ไม่นับ #frag ใน URL หรือ &#39;)
 // และต้องมีตัวอักษรอย่างน้อย 1 ตัว (#2024 ไม่นับ)
 const HASHTAG_RE = /(^|[^\p{L}\p{M}\p{N}_&/#])#([\p{L}\p{M}\p{N}_]*[\p{L}\p{M}][\p{L}\p{M}\p{N}_]*)/gu;

@@ -7,6 +7,8 @@ const { validatePassword, validateUsername, validateEmail } = require('../lib/ac
 const { PRIVACY_VERSION, exportUserData, deleteUserData } = require('../lib/accountData');
 
 const RESET_TTL_MINUTES = 30;
+// ผู้ให้บริการอีเมลปฏิเสธ (เช่น ยังไม่ได้ยืนยันโดเมนกับ Resend) — สาเหตุจริงอยู่ใน log ของ server
+const EMAIL_FAILED = 'ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่ภายหลัง หรือแจ้งผู้ดูแลระบบ';
 
 module.exports = function accountRouter({
   db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS, emailVerification
@@ -112,7 +114,10 @@ module.exports = function accountRouter({
       req.session.isAdmin = moderation.isAdminEmail(email);
       await endSessions(id, req.sessionID);
       io.in('user:' + id).disconnectSockets(true); // socket เก่ายังจำชื่อเดิม — หน้าเว็บจะโหลดใหม่เอง
-      res.json({ success: true, username, email, verify_email_sent: verifyEmailSent });
+      res.json({
+        success: true, username, email, verify_email_sent: verifyEmailSent,
+        verify_email_failed: emailChanged && emailFeaturesEnabled() && !verifyEmailSent
+      });
     } catch (e) {
       if (e.code === 11000) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });
       console.error('identity change error:', e);
@@ -127,7 +132,7 @@ module.exports = function accountRouter({
       if (!user) return res.status(404).json({ success: false });
       if (user.email_verified) return res.json({ success: true, already: true });
       if (!emailFeaturesEnabled()) return res.status(400).json({ success: false, error: 'ระบบส่งอีเมลยังไม่เปิดใช้งาน' });
-      await emailVerification.send(req, user);
+      if (!(await emailVerification.send(req, user))) return res.status(502).json({ success: false, error: EMAIL_FAILED });
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });

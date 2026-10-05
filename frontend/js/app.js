@@ -153,7 +153,7 @@ async function requestReset() {
   if (!data.success) { msg.className = 'form-msg error-msg'; msg.textContent = data.error || 'ส่งไม่สำเร็จ'; return; }
   msg.className = 'form-msg';
   msg.textContent = data.delivery === 'email'
-    ? 'ถ้ามีบัญชีที่ใช้อีเมลนี้ เราส่งลิงก์ตั้งรหัสใหม่ไปแล้ว (ใช้ได้ 30 นาที) อย่าลืมดูในโฟลเดอร์สแปมด้วย'
+    ? 'ถ้ามีบัญชีที่ใช้อีเมลนี้ เราส่งลิงก์ตั้งรหัสใหม่ไปแล้ว (ใช้ได้ 30 นาที) อย่าลืมดูในโฟลเดอร์สแปมด้วย — ไม่ได้รับภายใน 10 นาที ติดต่อแอดมินได้'
     : 'ระบบส่งอีเมลยังไม่เปิดใช้งาน กรุณาติดต่อแอดมินเพื่อขอลิงก์ตั้งรหัสผ่านใหม่';
 }
 
@@ -221,6 +221,7 @@ async function register() {
     searchSkills();
     showProfile();
     if (data.verify_email_sent) showToast(`📧 ส่งลิงก์ยืนยันไปที่ ${esc(email)} แล้ว<small>กดลิงก์ในอีเมลเพื่อยืนยัน (ใช้ได้ 24 ชั่วโมง)</small>`);
+    else if (data.verify_email_failed) showToast('สมัครเรียบร้อย แต่ส่งอีเมลยืนยันไม่สำเร็จ<small>ลองกด "ส่งลิงก์ยืนยัน" ในโปรไฟล์อีกครั้งภายหลัง</small>');
   } else {
     document.getElementById('reg-error').textContent = data.error;
   }
@@ -375,7 +376,9 @@ document.getElementById('identity-form').addEventListener('submit', async (e) =>
   try {
     sessionStorage.setItem('kb-notice', data.verify_email_sent
       ? `บันทึกแล้ว<small>ส่งลิงก์ยืนยันไปที่ ${data.email} แล้ว</small>`
-      : 'บันทึกชื่อผู้ใช้/อีเมลใหม่แล้ว');
+      : data.verify_email_failed
+        ? 'บันทึกแล้ว แต่ส่งอีเมลยืนยันไม่สำเร็จ<small>ลองกด "ส่งลิงก์ยืนยัน" ในโปรไฟล์อีกครั้งภายหลัง</small>'
+        : 'บันทึกชื่อผู้ใช้/อีเมลใหม่แล้ว');
   } catch (err) {}
   location.reload();
 });

@@ -2,14 +2,14 @@
   "name": "knowbridge",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node backend/server.js",
     "test": "node test/e2e.js",
-    "demo:add": "node scripts/demo-data.js add",
-    "demo:remove": "node scripts/demo-data.js remove",
-    "backup": "node scripts/backup.js backup",
-    "restore": "node scripts/backup.js restore"
+    "demo:add": "node backend/scripts/demo-data.js add",
+    "demo:remove": "node backend/scripts/demo-data.js remove",
+    "backup": "node backend/scripts/backup.js backup",
+    "restore": "node backend/scripts/backup.js restore"
   },
   "keywords": [],
   "author": "",

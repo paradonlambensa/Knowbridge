@@ -9,6 +9,7 @@ const siteOrigin = (req) => (process.env.APP_URL || `${req.protocol}://${req.get
 
 module.exports = function createEmailVerification({ db }) {
   // ส่งลิงก์ไปที่อีเมลปัจจุบันของบัญชี — ขอใหม่แล้วลิงก์เก่าใช้ไม่ได้
+  // คืน true เมื่อส่งออกไปจริง, false เมื่อปิดใช้อยู่หรือผู้ให้บริการอีเมลปฏิเสธ
   async function send(req, user) {
     if (!emailFeaturesEnabled()) return false;
     const token = crypto.randomBytes(32).toString('hex');
@@ -23,13 +24,12 @@ module.exports = function createEmailVerification({ db }) {
     // token อยู่หลัง # → ไม่ถูกส่งไปกับ request และไม่ติดใน log ของ server
     const link = `${siteOrigin(req)}/#verify=${token}`;
     const name = String(user.username).replace(/[<>&]/g, '');
-    await sendMail({
+    return sendMail({
       to: user.email,
       subject: 'ยืนยันอีเมล — KnowBridge',
       text: `สวัสดี ${user.username}\n\nกดลิงก์นี้เพื่อยืนยันอีเมลของบัญชี KnowBridge (ใช้ได้ ${VERIFY_TTL_HOURS} ชั่วโมง):\n${link}\n\nถ้าคุณไม่ได้สมัคร ไม่ต้องทำอะไร`,
       html: `<p>สวัสดี ${name}</p><p><a href="${link}">กดที่นี่เพื่อยืนยันอีเมล</a> (ใช้ได้ ${VERIFY_TTL_HOURS} ชั่วโมง)</p><p>ถ้าคุณไม่ได้สมัคร ไม่ต้องทำอะไร</p>`
     });
-    return true;
   }
 
   // คืนบัญชีที่ยืนยันสำเร็จ หรือ null ถ้าลิงก์ใช้ไม่ได้ (หมดอายุ / ใช้ไปแล้ว / เปลี่ยนอีเมลไปแล้ว)

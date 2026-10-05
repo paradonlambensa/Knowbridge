@@ -22,7 +22,7 @@ let serverLog = ''; // อีเมลทดสอบถูกพิมพ์อ
 // ปิด rate limit ไว้ก่อน (เทสยิง request เยอะ) — ช่วงท้ายเปิดเพื่อเทสตัวมันเอง
 function startServer(extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    server = spawn(process.execPath, ['server.js'], {
+    server = spawn(process.execPath, ['backend/server.js'], {
       cwd: path.join(__dirname, '..'),
       env: { ...process.env, PORT, MONGODB_DB: TEST_DB, RATE_LIMIT: 'off', ADMIN_EMAILS: ADMIN_EMAIL, ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -687,7 +687,28 @@ async function run() {
   // --- session อยู่รอดหลัง restart ---
   if (ownServer) {
     await stopServer();
-    await startServer({ RATE_LIMIT: 'on', DEMO_ACCOUNTS: 'off' });
+    // จำลอง Resend ที่ปฏิเสธการส่ง (เหมือนตอนยังไม่ได้ยืนยันโดเมน) — ไม่มีการเรียก Resend จริง
+    const mailHits = [];
+    const fakeResend = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', d => (body += d));
+      req.on('end', () => {
+        mailHits.push(JSON.parse(body || '{}'));
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ statusCode: 403, message: 'You can only send testing emails to your own email address' }));
+      });
+    });
+    await new Promise(r => fakeResend.listen(0, '127.0.0.1', r));
+    await startServer({
+      RATE_LIMIT: 'on', DEMO_ACCOUNTS: 'off',
+      RESEND_API_KEY: 're_test_fake', RESEND_API_URL: `http://127.0.0.1:${fakeResend.address().port}`
+    });
+    let r = await post(A, '/api/account/verify-email/send', {});
+    check('ส่งอีเมลไม่สำเร็จ (Resend ปฏิเสธ) → บอกผู้ใช้ตามจริง ไม่ขึ้นว่าส่งแล้ว',
+      r.status === 502 && mailHits.some(m => m.to?.[0] === A.profile.user.email), `${r.status} hits=${mailHits.length}`);
+    j = await tryRegister({ username: 'Late_' + tag, email: `late_${tag}@test.local`, password: 'good-pass-123', accept_privacy: true });
+    check('สมัครได้แม้ส่งอีเมลยืนยันไม่สำเร็จ และบอกว่าส่งไม่สำเร็จ', j.success && j.verify_email_sent === false && j.verify_email_failed === true, JSON.stringify(j));
+    fakeResend.close();
     const stillIn = await api(A, '/api/profile');
     check('restart server แล้วยัง login อยู่ (session เก็บใน MongoDB)', stillIn.status === 200);
     check('ปิดบัญชีทดลอง (DEMO_ACCOUNTS=off) แล้ว login ไม่ได้', (await loginRaw('lxzy@demo.com', 'demo1234')).status === 403);

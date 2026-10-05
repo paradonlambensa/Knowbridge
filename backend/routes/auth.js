@@ -3,6 +3,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { validateAccount } = require('../lib/accountRules');
 const { PRIVACY_VERSION } = require('../lib/accountData');
+const { emailFeaturesEnabled } = require('../lib/mailer');
 
 module.exports = function authRouter({ db, moderation, limits, CI, emailVerification }) {
   const router = express.Router();
@@ -34,7 +35,7 @@ module.exports = function authRouter({ db, moderation, limits, CI, emailVerifica
       startSession(req, { ...user, _id: result.insertedId });
       // ส่งลิงก์ยืนยันอีเมล (ส่งไม่สำเร็จก็ยังสมัครได้ ขอลิงก์ใหม่ได้ในโปรไฟล์)
       const verifyEmailSent = await emailVerification.send(req, { ...user, _id: result.insertedId }).catch(() => false);
-      res.json({ success: true, verify_email_sent: verifyEmailSent });
+      res.json({ success: true, verify_email_sent: verifyEmailSent, verify_email_failed: emailFeaturesEnabled() && !verifyEmailSent });
     } catch (e) {
       // สมัครพร้อมกันสองคนด้วยอีเมลเดียวกัน → unique index กันไว้
       if (e.code === 11000) return res.status(409).json({ success: false, error: 'ชื่อผู้ใช้หรืออีเมลนี้มีคนใช้แล้ว' });

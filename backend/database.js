@@ -1,6 +1,6 @@
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true });
 
 const uri = process.env.MONGODB_URI;
 // ตั้ง MONGODB_DB เป็นชื่ออื่น (เช่น knowbridge_dev) ตอนรันในเครื่อง จะได้ไม่ปนกับข้อมูลเว็บจริง

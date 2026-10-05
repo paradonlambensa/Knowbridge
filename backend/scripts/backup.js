@@ -7,7 +7,7 @@
 //
 // ⚠️ ไฟล์สำรองมีอีเมลและ hash ของรหัสผ่านผู้ใช้ — โฟลเดอร์ backups/ ถูก .gitignore ไว้ ห้ามอัปขึ้นที่สาธารณะ
 //    และลบไฟล์เก่าที่ไม่ใช้แล้วทิ้ง (PDPA: เก็บเท่าที่จำเป็น)
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env'), quiet: true });
 const fs = require('fs');
 const path = require('path');
 const { MongoClient, BSON } = require('mongodb');
@@ -28,7 +28,7 @@ const stamp = () => {
 };
 
 async function backup(database, dbName) {
-  const dir = path.join(__dirname, '..', 'backups', `${dbName}-${stamp()}`);
+  const dir = path.join(__dirname, '..', '..', 'backups', `${dbName}-${stamp()}`);
   fs.mkdirSync(dir, { recursive: true });
   const names = (await database.listCollections({}, { nameOnly: true }).toArray())
     .map(c => c.name).filter(n => !SKIP.has(n) && !n.startsWith('system.')).sort();

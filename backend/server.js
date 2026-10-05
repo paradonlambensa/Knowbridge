@@ -16,7 +16,7 @@ const ROUTERS = ['auth', 'skills', 'skillRequests', 'profile', 'exchange', 'noti
   .map(name => require('./routes/' + name));
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
 
 const app = express();
 const httpServer = createServer(app);
@@ -53,7 +53,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // หน้าแรก: ใส่ URL เต็มของเว็บลงใน meta การ์ดแชร์ลิงก์ (LINE/Facebook ต้องการลิงก์รูปแบบเต็ม)
 // ใช้ได้ทุกโดเมนโดยไม่ต้องแก้ไฟล์ — Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ
-const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
+const INDEX_PATH = path.join(FRONTEND_DIR, 'index.html');
 app.get(['/', '/index.html'], async (req, res, next) => {
   try {
     const host = req.get('host') || '';
@@ -65,7 +66,7 @@ app.get(['/', '/index.html'], async (req, res, next) => {
     next(e);
   }
 });
-app.use(express.static('public', { index: false }));
+app.use(express.static(FRONTEND_DIR, { index: false }));
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'knowbridge-secret-2024',
   resave: false,

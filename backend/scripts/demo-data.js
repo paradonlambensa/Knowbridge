@@ -8,7 +8,7 @@
 //   เปิด DEMO_ACCOUNTS=on แล้ว login ด้วย lxzy@demo.com / demo1234 เพื่อโชว์ได้ทันที
 // - ทุกอย่างที่สร้างมี demo_seed: true และ remove ลบตามผู้ใช้ตัวอย่างแบบเดียวกับการลบบัญชีจริง
 //   (คำขอ แชท รีวิว ความคิดเห็น ถูกใจ แจ้งเตือน ที่คนจริงทำกับข้อมูลตัวอย่างก็หายไปด้วย)
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env'), quiet: true });
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { MongoClient, ObjectId } = require('mongodb');
