@@ -146,7 +146,7 @@ document.addEventListener('click', (e) => {
 const AUTH_FORMS = { login: 'login-email', register: 'reg-username', forgot: 'forgot-email', reset: 'reset-password' };
 
 function showModal(type) {
-  document.getElementById('modal-overlay').style.display = 'flex';
+  showOverlay('modal-overlay');
   for (const name of Object.keys(AUTH_FORMS)) {
     document.getElementById('modal-' + name).style.display = name === type ? 'block' : 'none';
   }
@@ -197,6 +197,55 @@ async function submitReset() {
 function closeModal() {
   document.getElementById('modal-overlay').style.display = 'none';
 }
+
+// เปิดหน้าต่าง: ย้ายไปท้ายสุดของหน้า ให้หน้าต่างที่เปิดทีหลังอยู่บนสุดเสมอ
+// (เช่น กดชื่อคนในหน้าคำขอแล้วโปรไฟล์ต้องขึ้นทับ ไม่ใช่ไปอยู่ข้างหลัง)
+function showOverlay(id) {
+  const el = document.getElementById(id);
+  if (el.style.display !== 'flex') document.body.appendChild(el);
+  el.style.display = 'flex';
+  return el;
+}
+
+// ===== ปิดหน้าต่าง: คลิกพื้นที่มืดรอบ ๆ การ์ด หรือกด Esc ก็ได้ ไม่ต้องกด ✕ อย่างเดียว =====
+// ใช้ฟังก์ชันปิดเดิมของแต่ละหน้าต่าง (บางอันมีงานต่อ เช่น ปิดแชทแล้วกลับไปหน้าคำขอ)
+const MODAL_CLOSERS = {
+  'modal-overlay': () => closeModal(),
+  'modal-profile': () => closeProfile(),
+  'modal-user': () => closeUserProfile(),
+  'modal-dashboard': () => closeDashboard(),
+  'modal-chat': () => closeChat(),
+  'modal-rating': () => closeRating(),
+  'modal-schedule': () => closeSchedule(),
+  'modal-report': () => closeReport(),
+  'modal-admin': () => closeAdmin()
+};
+
+// ต้องกดลงและปล่อยบนพื้นที่มืดทั้งคู่ — ลากเลือกข้อความในการ์ดแล้วปล่อยเมาส์ข้างนอก จะได้ไม่ปิดเอง
+let backdropPressed = null;
+document.addEventListener('pointerdown', (e) => {
+  backdropPressed = e.target.classList?.contains('modal-overlay') ? e.target : null;
+});
+document.addEventListener('click', (e) => {
+  if (e.target !== backdropPressed) return;
+  backdropPressed = null;
+  MODAL_CLOSERS[e.target.id]?.();
+});
+
+// Esc: ปิดเมนู/กระดิ่งก่อน ถ้าไม่มีค่อยปิดหน้าต่างที่อยู่บนสุด
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const bell = document.getElementById('bell-panel');
+  const menu = document.querySelector('.post-menu-wrap .menu:not([hidden])');
+  if (!bell.hidden || menu) {
+    toggleBell(false);
+    closeMenus();
+    return;
+  }
+  const open = [...document.querySelectorAll('.modal-overlay')].filter(o => o.style.display === 'flex');
+  const top = open.at(-1);
+  if (top) MODAL_CLOSERS[top.id]?.();
+});
 
 async function login() {
   const email = document.getElementById('login-email').value;
@@ -793,7 +842,7 @@ async function loadMyReviews(userId) {
 
 async function showProfile() {
   document.getElementById('profile-msg').textContent = '';
-  document.getElementById('modal-profile').style.display = 'flex';
+  showOverlay('modal-profile');
   await loadSkillOptions();
   await loadProfile();
 }
@@ -827,7 +876,7 @@ async function saveProfile() {
 async function showUserProfile(userId) {
   const body = document.getElementById('user-profile-body');
   body.innerHTML = '<p class="muted">กำลังโหลด...</p>';
-  document.getElementById('modal-user').style.display = 'flex';
+  showOverlay('modal-user');
   const res = await fetch(`/api/user/${userId}/profile`);
   if (!res.ok) {
     body.innerHTML = '<p class="error-msg">ไม่พบผู้ใช้</p>';
@@ -1057,7 +1106,7 @@ async function showDashboard() {
     document.getElementById('dashboard-received').innerHTML = skeletonRequests(2);
     document.getElementById('dashboard-sent').innerHTML = skeletonRequests(2);
   }
-  modal.style.display = 'flex';
+  showOverlay('modal-dashboard');
   const res = await fetch('/api/dashboard');
   const data = await res.json();
 
@@ -1129,7 +1178,7 @@ function openSchedule(requestId) {
   document.getElementById('schedule-with').textContent = `กับ ${r?.other_username || ''} — อีกฝ่ายจะได้รับแจ้งเตือน`;
   document.getElementById('schedule-cancel').hidden = !r?.schedule;
   document.getElementById('schedule-msg').textContent = '';
-  document.getElementById('modal-schedule').style.display = 'flex';
+  showOverlay('modal-schedule');
 }
 
 function closeSchedule() {
@@ -1191,7 +1240,7 @@ async function openChat(requestId) {
   rateBtn.hidden = !req || req.status !== 'completed' || req.reviewed;
   rateBtn.onclick = () => openRating(requestId);
 
-  document.getElementById('modal-chat').style.display = 'flex';
+  showOverlay('modal-chat');
   document.getElementById('modal-dashboard').style.display = 'none';
 
   const chatInput = document.getElementById('chat-input');
@@ -1295,7 +1344,7 @@ async function openRating(requestId) {
   selectStar(0);
   document.getElementById('rating-comment').value = '';
   document.getElementById('rating-msg').textContent = '';
-  document.getElementById('modal-rating').style.display = 'flex';
+  showOverlay('modal-rating');
 }
 
 function closeRating() {
@@ -1366,7 +1415,7 @@ function openReport(type, id) {
   document.getElementById('report-what').textContent = { post: 'โพสต์', comment: 'ความคิดเห็น', user: 'ผู้ใช้' }[type];
   document.getElementById('report-form').reset();
   document.getElementById('report-msg').textContent = '';
-  document.getElementById('modal-report').style.display = 'flex';
+  showOverlay('modal-report');
 }
 
 function closeReport() {
@@ -1525,7 +1574,7 @@ function renderReportItem(r, i) {
 async function showAdmin() {
   const list = document.getElementById('admin-list');
   list.innerHTML = skeletonRequests(2);
-  document.getElementById('modal-admin').style.display = 'flex';
+  showOverlay('modal-admin');
   const items = await refreshAdminBadge() || [];
   list.innerHTML = items.length
     ? items.map(renderReportItem).join('')
