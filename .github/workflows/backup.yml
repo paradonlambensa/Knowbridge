@@ -41,10 +41,10 @@ jobs:
           echo "::error::$msg"
           exit 1
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.check.outputs.skip != 'true'
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: steps.check.outputs.skip != 'true'
         with:
           node-version: 24
@@ -66,7 +66,7 @@ jobs:
           rm -rf backups backup.tar.gz
           ls -la knowbridge-backup.tar.gz.enc
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.check.outputs.skip != 'true'
         with:
           name: knowbridge-backup-${{ github.run_number }}
