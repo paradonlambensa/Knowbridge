@@ -532,6 +532,25 @@ async function run() {
     check('login ด้วยรหัสใหม่ได้', (await loginRaw(dEmail, 'reset-pass-789')).ok);
   }
 
+  // --- บันทึกข้อผิดพลาด ---
+  const clientErr = { message: `TypeError: boom ${tag} near user@test.local`, stack: 'at render (app.js:1:2)', source: BASE + '/js/app.js', line: 10, col: 5, page: '/#community' };
+  check('หน้าเว็บส่ง error มาเก็บได้ (ไม่ต้อง login)', (await post(null, '/api/client-errors', clientErr)).status === 204);
+  await post(null, '/api/client-errors', clientErr);
+  await post(null, '/api/client-errors', { message: 'Script error.' });
+  const bad = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{bad json' });
+  check('JSON ผิดรูปแบบ → ตอบ 400 เป็น JSON (ไม่ใช่หน้า HTML)', bad.status === 400 && (bad.headers.get('content-type') || '').includes('application/json'));
+  check('คนทั่วไปดูบันทึกข้อผิดพลาดไม่ได้ (403)', (await api(A, '/api/admin/errors')).status === 403);
+  if (hasAdmin) {
+    const errs = await json(api(admin, '/api/admin/errors'));
+    const ce = errs.find(e => e.source === 'client' && e.message.includes(`boom ${tag}`));
+    check('แอดมินเห็น error ของหน้าเว็บ: ซ้ำกันรวมเป็นรายการเดียว และลบอีเมลออกแล้ว',
+      ce?.count === 2 && ce.message.includes('[email]') && !ce.message.includes('user@test.local') && ce.path === '/', JSON.stringify(ce));
+    check('error ที่ไม่ใช่ของเว็บเรา (Script error.) ไม่ถูกเก็บ', !errs.some(e => e.message === 'Script error.'));
+    check('JSON ผิดรูปแบบ (ข้อผิดพลาดของผู้ส่ง) ไม่ถูกนับเป็นข้อผิดพลาดของระบบ', !errs.some(e => /JSON/.test(e.message) && e.kind === 'exception'));
+    j = await json(post(admin, `/api/admin/errors/${ce._id}/resolve`, {}));
+    check('แอดมินกด "แก้แล้ว" → หายจากรายการ', j.success && !(await json(api(admin, '/api/admin/errors'))).some(e => e._id === ce._id));
+  }
+
   // --- เสนอทักษะใหม่ ---
   const suggest = (u, body) => post(u, '/api/skills/suggest', body);
   const newSkill = `Excel ${tag}`;
@@ -614,7 +633,7 @@ async function run() {
 
   // --- PDPA: นโยบาย / ขอสำเนาข้อมูล / ลบบัญชี ---
   const privacy = await json(api(null, '/api/privacy'));
-  check('มีเวอร์ชันนโยบายความเป็นส่วนตัว', /^\d{4}-\d{2}-\d{2}$/.test(privacy.version || ''), privacy.version);
+  check('มีเวอร์ชันนโยบายความเป็นส่วนตัว', /^\d{4}-\d{2}-\d{2}(\.\d+)?$/.test(privacy.version || ''), privacy.version);
   j = await tryRegister({ ...okBody, accept_privacy: false });
   check('สมัคร: ไม่ยอมรับนโยบายไม่ได้', !j.success && /นโยบาย/.test(j.error), j.error);
   check('สมัครแล้วบันทึกว่ายอมรับนโยบายเวอร์ชันไหน เมื่อไร',
@@ -785,6 +804,15 @@ async function run() {
     let r = await post(A, '/api/account/verify-email/send', {});
     check('ส่งอีเมลไม่สำเร็จ (Resend ปฏิเสธ) → บอกผู้ใช้ตามจริง ไม่ขึ้นว่าส่งแล้ว',
       r.status === 502 && mailHits.some(m => m.to?.[0] === A.profile.user.email), `${r.status} hits=${mailHits.length}`);
+    if (hasAdmin) {
+      await sleep(300);
+      const errs2 = await json(api(admin, '/api/admin/errors'));
+      check('server บันทึกข้อผิดพลาดเอง: คำตอบ 5xx และ log ของ server (ไม่มีอีเมลหลุด)',
+        errs2.some(e => e.kind === 'http' && e.status === 502 && e.path === '/api/account/verify-email/send') &&
+        errs2.some(e => e.kind === 'log' && /Resend 403/.test(e.message) && e.message.includes('[email]')) &&
+        !JSON.stringify(errs2).includes(A.profile.user.email),
+        JSON.stringify(errs2.slice(0, 3).map(e => [e.kind, e.message.slice(0, 60)])));
+    }
     j = await tryRegister({ username: 'Late_' + tag, email: `late_${tag}@test.local`, password: 'good-pass-123', accept_privacy: true });
     check('สมัครได้แม้ส่งอีเมลยืนยันไม่สำเร็จ และบอกว่าส่งไม่สำเร็จ', j.success && j.verify_email_sent === false && j.verify_email_failed === true, JSON.stringify(j));
     fakeResend.close();

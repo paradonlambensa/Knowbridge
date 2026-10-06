@@ -11,10 +11,11 @@ const createExchangeHelpers = require('./lib/exchangeHelpers');
 const createEmailVerification = require('./lib/emailVerification');
 const createPresence = require('./lib/presence');
 const createLiveStats = require('./lib/liveStats');
+const createErrorLog = require('./lib/errorLog');
 const setupSocket = require('./lib/socket');
 const limits = require('./lib/limits');
 // API แยกตามเรื่อง — แต่ละไฟล์รับของที่ต้องใช้ผ่าน routeDeps ด้านล่าง
-const ROUTERS = ['auth', 'skills', 'skillRequests', 'profile', 'exchange', 'notifications', 'posts', 'moderation', 'account', 'stats']
+const ROUTERS = ['auth', 'skills', 'skillRequests', 'profile', 'exchange', 'notifications', 'posts', 'moderation', 'account', 'stats', 'errors']
   .map(name => require('./routes/' + name));
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -25,6 +26,19 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
 const SESSION_TTL = 24 * 60 * 60; // วินาที
+// บันทึกข้อผิดพลาด (lib/errorLog.js): console.error ทุกที่ + error ที่ไม่มีใครจับ + คำตอบ 5xx
+const errorLog = createErrorLog({ db });
+errorLog.captureConsole();
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection:', reason instanceof Error ? reason : new Error(String(reason)));
+});
+process.on('uncaughtException', (err) => {
+  // สถานะของโปรแกรมไม่น่าไว้ใจแล้ว — บันทึกไว้แล้วออก ให้ Render เปิดใหม่
+  console.log('uncaughtException:', err);
+  const saved = errorLog.record({ kind: 'uncaughtException', message: err.message, stack: err.stack });
+  Promise.race([saved, new Promise(r => setTimeout(r, 2000))]).finally(() => process.exit(1));
+});
+
 const moderation = createModeration({ db, ObjectId });
 const presence = createPresence();
 ready.then(() => Promise.all([moderation.loadBanned(), presence.loadHidden(db)]));
@@ -63,6 +77,17 @@ app.use(helmet({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// คำขอไหนตอบ 5xx ก็บันทึกไว้ (รวมกลุ่มตาม route เช่น /api/posts/:id/like)
+const routeOf = (req) => (req.route ? req.baseUrl + req.route.path : req.originalUrl.split('?')[0].replace(/[0-9a-f]{24}/gi, ':id'));
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      errorLog.record({ kind: 'http', message: `HTTP ${res.statusCode} ${req.method} ${routeOf(req)}`, path: routeOf(req), status: res.statusCode });
+    }
+  });
+  next();
+});
 
 // หน้าแรก: ใส่ URL เต็มของเว็บลงใน meta การ์ดแชร์ลิงก์ (LINE/Facebook ต้องการลิงก์รูปแบบเต็ม)
 // ใช้ได้ทุกโดเมนโดยไม่ต้องแก้ไฟล์ — Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ
@@ -127,9 +152,17 @@ const realtime = {}; // lib/socket.js ใส่ announcePresence ให้ — r
 
 const routeDeps = {
   db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS,
-  emailVerification, presence, liveStats, realtime, ...helpers
+  emailVerification, presence, liveStats, realtime, errorLog, ...helpers
 };
 for (const router of ROUTERS) app.use('/api', router(routeDeps));
+
+// error ที่หลุดออกมาจาก route (หรือ JSON ที่ส่งมาผิดรูปแบบ) → ตอบเป็น JSON ไม่ใช่หน้า HTML ของ Express
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) errorLog.record({ kind: 'exception', message: err.message, stack: err.stack, path: routeOf(req), status });
+  if (res.headersSent) return next(err);
+  res.status(status).json({ success: false, error: status >= 500 ? 'เกิดข้อผิดพลาด' : 'ข้อมูลที่ส่งมาไม่ถูกต้อง' });
+});
 setupSocket(routeDeps);
 
 httpServer.listen(PORT, () => {

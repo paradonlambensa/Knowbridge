@@ -637,6 +637,15 @@ textarea.input { resize: vertical; min-height: 84px; }
 .post.removing { opacity: 0; transform: translateX(-8px); transition: opacity 0.3s, transform 0.3s; }
 .comment.fresh { animation: highlight 1.6s ease-out; border-radius: var(--radius-sm); }
 
+/* ===== แอดมิน: ข้อผิดพลาด ===== */
+.errors-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.82rem; margin-bottom: 0.25rem; }
+.error-message { font-size: 0.9rem; font-weight: 600; word-break: break-word; }
+.error-meta { font-size: 0.78rem; color: var(--text-light); margin-top: 0.15rem; word-break: break-all; }
+.error-stack { margin-top: 0.6rem; font-size: 0.8rem; }
+.error-stack summary { cursor: pointer; color: var(--link); font-weight: 600; }
+.error-stack pre { margin-top: 0.4rem; padding: 0.6rem 0.75rem; max-height: 220px; overflow: auto; border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text-muted); font-size: 0.74rem; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+
 /* ===== การ์ดโปรไฟล์ (บริการ PHP) ===== */
 .card-row { font-size: 0.88rem; margin: 0.25rem 0 0.9rem; }
 .card-row a { font-weight: 600; }
@@ -857,6 +866,8 @@ body:has(.privacy-bar:not([hidden])) #toast-container { bottom: 6.5rem; }
   .composer-hint { display: none; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 320px; margin-left: auto; margin-right: auto; }
   .bell-panel { position: fixed; left: 0.75rem; right: 0.75rem; top: calc(var(--nav-h) + 0.5rem); width: auto; }
+  /* แท็บ (เช่น 3 แท็บในเมนูแอดมิน) ให้อยู่บรรทัดเดียว ตัวหนังสือเล็กลงนิด */
+  .tab { white-space: nowrap; padding-left: 0.35rem; padding-right: 0.35rem; font-size: 0.82rem; }
   .privacy-bar { flex-direction: column; align-items: stretch; gap: 0.6rem; bottom: 0.75rem; }
   .privacy-bar .btn { width: 100%; }
   body:has(.privacy-bar:not([hidden])) #toast-container { bottom: 9.5rem; }

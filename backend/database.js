@@ -37,6 +37,7 @@ async function connectDB() {
     db.password_resets   = database.collection('password_resets');
     db.skill_requests    = database.collection('skill_requests');
     db.email_verifications = database.collection('email_verifications');
+    db.error_logs        = database.collection('error_logs');
     db.sessions          = database.collection('sessions'); // ของ connect-mongo — ใช้ลบ session ตอนเปลี่ยนรหัส
 
     await Promise.all([
@@ -63,6 +64,9 @@ async function connectDB() {
       db.skill_requests.createIndex({ 'requests.user_id': 1 }),
       db.email_verifications.createIndex({ token_hash: 1 }, { unique: true }),
       db.email_verifications.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+      // บันทึกข้อผิดพลาด: กลุ่มละแถว และลบเองถ้าไม่เกิดซ้ำ 30 วัน
+      db.error_logs.createIndex({ key: 1 }, { unique: true }),
+      db.error_logs.createIndex({ last_seen: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }),
     ]);
     // อีเมล/ชื่อซ้ำกันไม่ได้ (Test@x กับ test@x นับเป็นอันเดียวกัน) — ถ้าข้อมูลเก่ามีซ้ำอยู่แล้ว
     // index จะสร้างไม่ได้ แต่ระบบยังทำงานต่อ (ฝั่ง register เช็กซ้ำให้อยู่แล้ว)

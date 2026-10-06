@@ -1,3 +1,16 @@
+// ===== error ฝั่งหน้าเว็บ → ส่งให้แอดมินดูในเมนูแอดมิน (ไม่เกิน 5 ครั้งต่อการเปิดหน้า) =====
+let clientErrorsSent = 0;
+function reportClientError(message, stack, source, line, col) {
+  if (!message || clientErrorsSent >= 5) return;
+  clientErrorsSent++;
+  fetch('/api/client-errors', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+    body: JSON.stringify({ message: String(message).slice(0, 500), stack: String(stack || '').slice(0, 2000), source, line, col, page: location.pathname })
+  }).catch(() => {});
+}
+window.addEventListener('error', (e) => reportClientError(e.message, e.error?.stack, e.filename, e.lineno, e.colno));
+window.addEventListener('unhandledrejection', (e) => reportClientError(e.reason?.message || String(e.reason), e.reason?.stack));
+
 // ป้องกัน XSS: escape ข้อความจากผู้ใช้ก่อนใส่ลง innerHTML
 function esc(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({
@@ -500,7 +513,7 @@ async function loadPrivacyInfo() {
   privacyInfoLoaded = true;
   const info = await fetch('/api/privacy').then(r => r.json()).catch(() => null);
   if (!info) return;
-  const updated = new Date(info.version + 'T00:00:00');
+  const updated = new Date(info.version.slice(0, 10) + 'T00:00:00'); // "2026-10-07.2" → วันที่ 7
   if (!isNaN(updated)) document.getElementById('privacy-updated').textContent = updated.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
   if (info.contact_email) {
     const a = document.createElement('a');
@@ -1495,7 +1508,52 @@ function switchAdminTab(tab) {
   document.querySelectorAll('#modal-admin .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.getElementById('admin-list').hidden = tab !== 'reports';
   document.getElementById('admin-skills').hidden = tab !== 'skills';
+  document.getElementById('admin-errors').hidden = tab !== 'errors';
+  if (tab === 'errors') loadAdminErrors();
 }
+
+// ===== แอดมิน: ข้อผิดพลาดของระบบ (server + หน้าเว็บ) =====
+const ERROR_KIND = { http: 'คำขอล้มเหลว', log: 'server', exception: 'server', uncaughtException: 'server ล่ม', js: 'หน้าเว็บ' };
+let adminErrors = [];
+
+async function loadAdminErrors() {
+  const box = document.getElementById('admin-errors');
+  const res = await fetch('/api/admin/errors');
+  adminErrors = res.ok ? await res.json() : [];
+  document.getElementById('count-errors').textContent = adminErrors.length || '';
+  box.innerHTML = adminErrors.length
+    ? `<div class="errors-head"><span class="muted">เก็บ 30 วัน · ข้อผิดพลาดเดียวกันรวมเป็นรายการเดียว</span>
+         <button class="btn btn-ghost btn-sm" data-error="clear">ล้างทั้งหมด</button></div>` + adminErrors.map(renderErrorItem).join('')
+    : '<div class="empty"><b>ไม่มีข้อผิดพลาด 🎉</b>ระบบทำงานปกติ</div>';
+}
+
+function renderErrorItem(e, i) {
+  return `
+    <div class="request error-item" data-i="${i}">
+      <div class="request-top">
+        <span class="status ${e.source === 'client' ? 'accepted' : 'rejected'}">${esc(ERROR_KIND[e.kind] || e.kind)}</span>
+        <div style="flex:1;min-width:0">
+          <p class="error-message">${esc(e.message)}</p>
+          <p class="error-meta">${e.path ? `${esc(e.path)} · ` : ''}${e.count} ครั้ง · ล่าสุด ${esc(timeAgo(e.last_seen))}${timeAgo(e.last_seen) === 'เมื่อสักครู่' ? '' : 'ที่แล้ว'}</p>
+        </div>
+      </div>
+      ${e.stack ? `<details class="error-stack"><summary>รายละเอียด</summary><pre>${esc(e.stack)}</pre></details>` : ''}
+      <div class="request-actions"><span class="spacer"></span><button class="btn btn-outline btn-sm" data-error="resolve">แก้แล้ว</button></div>
+    </div>`;
+}
+
+document.getElementById('admin-errors').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-error]');
+  if (!btn) return;
+  if (btn.dataset.error === 'clear') {
+    if (!confirm('ล้างบันทึกข้อผิดพลาดทั้งหมด?')) return;
+    await fetch('/api/admin/errors/clear', { method: 'POST' });
+  } else {
+    const item = adminErrors[btn.closest('[data-i]').dataset.i];
+    await fetch(`/api/admin/errors/${item._id}/resolve`, { method: 'POST' });
+  }
+  loadAdminErrors();
+});
 
 const CATEGORY_KEYS = ['IT', 'Language', 'Art', 'Music', 'Other'];
 

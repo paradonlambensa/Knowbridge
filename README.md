@@ -62,6 +62,10 @@
 - แก้เนื้อหานโยบายแล้ว ให้เปลี่ยน `PRIVACY_VERSION` ใน `backend/lib/accountData.js` ด้วย ผู้ใช้ทุกคนจะเห็นแถบให้รับทราบใหม่
 
 **ความปลอดภัยและดูแลเนื้อหา**
+- **บันทึกข้อผิดพลาด** (แทน Sentry ไม่ต้องสมัครบริการภายนอก): แอดมิน → แท็บ "ข้อผิดพลาด" เห็น error ของ server
+  (`console.error` ทุกที่, error ที่ไม่มีใครจับ, คำขอที่ตอบ 5xx) และ error JavaScript ของหน้าเว็บผู้ใช้
+  ข้อผิดพลาดเดียวกันรวมเป็นรายการเดียวพร้อมจำนวนครั้ง กด "แก้แล้ว" เพื่อเอาออก — ลบอีเมล token
+  และรหัสในลิงก์ฐานข้อมูลออกก่อนบันทึก ไม่เก็บ body ของ request และลบเองหลัง 30 วัน
 - **Security headers** (helmet): Content-Security-Policy โหลดสคริปต์/สไตล์/ฟอนต์ได้เฉพาะจากเว็บเราและ Google Fonts,
   ห้ามเว็บอื่นเอาหน้าเราไปฝังใน iframe (กัน clickjacking), HSTS, `X-Content-Type-Options: nosniff` ฯลฯ
 - จำกัดจำนวนครั้ง: ใส่รหัสผิดเกิน 10 ครั้งใน 15 นาทีถูกพัก, สมัครได้ 5 ครั้ง/ชม. ต่อ IP,
@@ -186,11 +190,13 @@ Knowbridge/
 │   │   ├── posts.js       ← ฟีดชุมชน (โพสต์ ถูกใจ ความคิดเห็น แท็ก)
 │   │   ├── moderation.js  ← รายงาน / บล็อก / แอดมิน
 │   │   ├── account.js     ← เปลี่ยนรหัส/ชื่อ/อีเมล / ลืมรหัส / ยืนยันอีเมล / ดาวน์โหลดข้อมูล / ลบบัญชี
-│   │   └── stats.js       ← ตัวเลขบนหน้าแรก
+│   │   ├── stats.js       ← ตัวเลขบนหน้าแรก
+│   │   └── errors.js      ← รับ error จากหน้าเว็บ / แอดมินดูบันทึกข้อผิดพลาด
 │   ├── lib/               ← โค้ดที่หลาย route ใช้ร่วมกัน
 │   │   ├── socket.js      ← Socket.IO: แจ้งเตือน / แชท / กำลังพิมพ์ / สถานะออนไลน์
 │   │   ├── presence.js    ← ใครออนไลน์อยู่ (หน่วยความจำเท่านั้น) + การตั้งค่าซ่อนสถานะ
 │   │   ├── liveStats.js   ← ตัวเลขหน้าแรก + ส่งอัปเดตสดเมื่อมีความเคลื่อนไหว
+│   │   ├── errorLog.js    ← บันทึกข้อผิดพลาด (รวมกลุ่ม ลบข้อมูลส่วนตัวออก)
 │   │   ├── exchangeHelpers.js ← ตัวช่วยเรื่องคำขอ/แชท/คะแนน
 │   │   ├── moderation.js  ← รายชื่อบัญชีที่ถูกระงับ และเช็กการบล็อก
 │   │   ├── notifier.js    ← แจ้งเตือน: เก็บลง DB (กระดิ่ง) + ส่งทาง Socket.IO
@@ -219,6 +225,7 @@ Knowbridge/
 ├── test/e2e.js            ← เทส flow ทั้งหมดผ่าน HTTP + Socket.IO (`npm test`)
 ├── package.json           ← dependency และคำสั่ง npm ของทั้งโปรเจกต์ (ติดตั้งครั้งเดียวที่รากโปรเจกต์)
 ├── render.yaml            ← Blueprint สำหรับ deploy ขึ้น Render
+├── .github/workflows/backup.yml ← สำรองฐานข้อมูลทุกวันด้วย GitHub Actions (เข้ารหัสก่อนอัปโหลด)
 └── .env                   ← ค่าลับ (MONGODB_URI ฯลฯ) อยู่ที่รากโปรเจกต์ — ไม่ถูก commit
 ```
 
@@ -336,6 +343,10 @@ npm run demo:remove -- --db=knowbridge
 | `GET` | `/api/skills/suggestions/mine` | ✓ | ทักษะที่เราเสนอและยังรอตรวจ |
 | `GET` | `/api/admin/skill-requests` | แอดมิน | ทักษะที่รอตรวจ พร้อมจำนวนและชื่อคนเสนอ |
 | `POST` | `/api/admin/skill-requests/:id` | แอดมิน | `{ action: 'approve' \| 'reject', name?, category? }` |
+| `POST` | `/api/client-errors` | | หน้าเว็บส่ง error JavaScript มาเก็บ `{ message, stack?, source?, line?, col?, page? }` |
+| `GET` | `/api/admin/errors` | แอดมิน | บันทึกข้อผิดพลาดล่าสุด 100 กลุ่ม |
+| `POST` | `/api/admin/errors/:id/resolve` | แอดมิน | เอาข้อผิดพลาดที่แก้แล้วออก |
+| `POST` | `/api/admin/errors/clear` | แอดมิน | ล้างทั้งหมด |
 | `GET` | `/api/search?skill=&category=` | | หาคนที่สอนทักษะนั้น (ไม่รวมตัวเอง) 1 รายการต่อคน พร้อม `skills` ที่ตรงคำค้น |
 | `GET` | `/api/matches` | ✓ | คู่แลกเปลี่ยนที่แนะนำ 12 อันดับ: `perfect`, `can_teach_me`, `wants_from_me`, `request_status` |
 | `GET` | `/api/profile` | ✓ | โปรไฟล์และทักษะของตัวเอง |
@@ -426,6 +437,7 @@ npm run demo:remove -- --db=knowbridge
 | `password_resets` | hash ของ token ลิงก์ตั้งรหัสใหม่ (หมดอายุอัตโนมัติใน 30 นาที) |
 | `email_verifications` | hash ของ token ลิงก์ยืนยันอีเมล (หมดอายุอัตโนมัติใน 24 ชั่วโมง) |
 | `skill_requests` | ทักษะที่ผู้ใช้เสนอ: ชื่อ หมวด สถานะ (`pending` / `approved` / `rejected`) และรายชื่อคนเสนอ |
+| `error_logs` | บันทึกข้อผิดพลาด กลุ่มละแถว (ข้อความ จุดที่เกิด จำนวนครั้ง ครั้งแรก/ล่าสุด) — ลบเองถ้าไม่เกิดซ้ำ 30 วัน |
 
 `users.disabled = true` คือบัญชีที่ถูกระงับ (หรือบัญชีทดลองที่ปิดอยู่) / `posts.hidden`, `comments.hidden` คือถูกซ่อนเพราะรายงานครบ
 
@@ -493,6 +505,34 @@ npm run restore -- --from=backups/knowbridge-2026-10-05-1530 --db=knowbridge_res
 > ⚠️ ไฟล์สำรองมีอีเมลและ hash ของรหัสผ่านผู้ใช้ — `backups/` อยู่ใน `.gitignore` ห้ามอัปขึ้นที่สาธารณะ
 > และลบไฟล์เก่าที่ไม่ใช้แล้วทิ้ง Atlas แบบฟรี (M0) ไม่มี backup อัตโนมัติ ควรสำรองก่อนแก้อะไรใหญ่ ๆ หรือก่อนพรีเซนต์
 
+### สำรองข้อมูลอัตโนมัติ (GitHub Actions)
+
+`.github/workflows/backup.yml` รัน `npm run backup` กับฐานข้อมูลเว็บจริงทุกวันตอนตี 3 (เวลาไทย) แล้วเก็บไฟล์ไว้ใน GitHub 14 วัน
+repo นี้เป็นสาธารณะ ไฟล์จึง**เข้ารหัส AES-256 ก่อนอัปโหลดทุกครั้ง** — คนที่ดาวน์โหลดไปได้ก็เปิดไม่ได้ถ้าไม่มีรหัส
+
+ตั้งครั้งเดียว: repo บน GitHub → **Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret | ค่า |
+|---|---|
+| `MONGODB_URI` | ลิงก์ฐานข้อมูลเดียวกับที่ตั้งใน Render |
+| `BACKUP_PASSPHRASE` | รหัสสำหรับเข้ารหัสไฟล์สำรอง — ตั้งยาว ๆ (สุ่มได้ด้วย `openssl rand -base64 32`) แล้วเก็บไว้ในที่ปลอดภัย ทำหายแล้วเปิดไฟล์สำรองไม่ได้ |
+
+ทดลองรันได้ทันทีที่แท็บ **Actions → สำรองฐานข้อมูล → Run workflow** — เสร็จแล้วไฟล์อยู่ในหน้าของรอบนั้น หัวข้อ Artifacts
+
+เปิดไฟล์สำรอง (ดาวน์โหลด artifact มาแตก zip ก่อน — ใช้ Git Bash บน Windows ได้):
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in knowbridge-backup.tar.gz.enc -out backup.tar.gz
+```
+
+```bash
+mkdir -p backups && tar -xzf backup.tar.gz -C backups
+```
+
+แล้วกู้คืนด้วย `npm run restore -- --from=backups/<โฟลเดอร์> --db=...` ตามด้านบน (openssl จะถามรหัส `BACKUP_PASSPHRASE`)
+
+> repo สาธารณะที่ไม่มีความเคลื่อนไหว 60 วัน GitHub จะหยุดรันตามเวลาอัตโนมัติ — กด Enable workflow ในแท็บ Actions ได้
+
 ## ที่อยากทำต่อ
 
 - [x] ระบบรีวิว/ให้คะแนนหลังแลกเปลี่ยนเสร็จ
@@ -513,7 +553,7 @@ npm run restore -- --from=backups/knowbridge-2026-10-05-1530 --db=knowbridge_res
 - [x] ยืนยันอีเมล และเปลี่ยนชื่อผู้ใช้/อีเมลเองได้
 - [x] Security headers (helmet)
 - [x] สคริปต์สำรอง/กู้คืนฐานข้อมูล (`npm run backup` / `restore`)
-- [ ] สำรองข้อมูลอัตโนมัติตามรอบ (เช่น GitHub Actions) และติดตาม error (เช่น Sentry)
+- [x] สำรองข้อมูลอัตโนมัติทุกวัน (GitHub Actions, เข้ารหัส) และบันทึกข้อผิดพลาดให้แอดมินดู (แทน Sentry)
 
 ---
 

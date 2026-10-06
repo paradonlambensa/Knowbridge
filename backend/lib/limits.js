@@ -33,6 +33,7 @@ module.exports = {
   exchange: limiter({ windowMs: 60 * MINUTE, limit: 20, message: 'ส่งคำขอบ่อยเกินไป กรุณารอสักครู่' }),
   report: limiter({ windowMs: 60 * MINUTE, limit: 20, message: 'รายงานบ่อยเกินไป กรุณารอสักครู่' }),
   suggest: limiter({ windowMs: 60 * MINUTE, limit: 10, message: 'เสนอทักษะบ่อยเกินไป กรุณารอสักครู่' }),
+  clientErrors: limiter({ windowMs: 10 * MINUTE, limit: 20, byUser: false, message: 'ส่งรายงานข้อผิดพลาดบ่อยเกินไป' }),
   exportData: limiter({ windowMs: 60 * MINUTE, limit: 10, message: 'ดาวน์โหลดข้อมูลบ่อยเกินไป กรุณารอสักครู่' }),
   // กันยิง API รัว ๆ ทั้งระบบ
   api: limiter({ windowMs: MINUTE, limit: 300, message: 'ใช้งานถี่เกินไป กรุณารอสักครู่' })

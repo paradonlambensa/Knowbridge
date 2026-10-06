@@ -1,0 +1,75 @@
+# สำรองฐานข้อมูลเว็บจริงทุกวัน (ตี 3 เวลาไทย) และกดรันเองได้ที่แท็บ Actions → "สำรองฐานข้อมูล" → Run workflow
+# ต้องตั้ง secret 2 ตัวก่อน: Settings → Secrets and variables → Actions → New repository secret
+#   MONGODB_URI        = ลิงก์ฐานข้อมูลเดียวกับใน Render
+#   BACKUP_PASSPHRASE  = รหัสสำหรับเข้ารหัสไฟล์สำรอง (ตั้งยาว ๆ แล้วเก็บไว้ให้ดี ทำหายแล้วเปิดไฟล์สำรองไม่ได้)
+# repo นี้เป็นสาธารณะ: ไฟล์ที่อัปโหลดเข้ารหัสด้วย AES-256 ทุกครั้ง (ในไฟล์มีอีเมลและ hash ของรหัสผ่าน)
+# วิธีเปิดไฟล์สำรอง ดู README หัวข้อ "สำรองข้อมูลอัตโนมัติ"
+name: สำรองฐานข้อมูล
+
+on:
+  schedule:
+    - cron: '0 20 * * *' # 20:00 UTC = 03:00 เวลาไทย
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      BACKUP_DB: knowbridge
+    steps:
+      # ยังไม่ได้ตั้ง secret: รอบตามเวลาข้ามไปเฉย ๆ (ไม่ส่งอีเมลแจ้งล้มเหลวทุกคืน) / กดรันเองจะขึ้นสีแดงให้เห็น
+      - name: ตรวจว่าตั้ง secret แล้ว
+        id: check
+        run: |
+          if [ -n "$MONGODB_URI" ] && [ -n "$BACKUP_PASSPHRASE" ]; then exit 0; fi
+          msg="ยังไม่ได้ตั้ง secret MONGODB_URI และ/หรือ BACKUP_PASSPHRASE (Settings → Secrets and variables → Actions)"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            echo "::warning::$msg — ข้ามการสำรองรอบนี้"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::$msg"
+          exit 1
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.check.outputs.skip != 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+        if: steps.check.outputs.skip != 'true'
+
+      - name: สำรองข้อมูล
+        if: steps.check.outputs.skip != 'true'
+        run: npm run backup -- --db="$BACKUP_DB"
+
+      - name: เข้ารหัสไฟล์สำรอง
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          tar -czf backup.tar.gz -C backups .
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in backup.tar.gz -out knowbridge-backup.tar.gz.enc -pass env:BACKUP_PASSPHRASE
+          rm -rf backups backup.tar.gz
+          ls -la knowbridge-backup.tar.gz.enc
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          name: knowbridge-backup-${{ github.run_number }}
+          path: knowbridge-backup.tar.gz.enc
+          retention-days: 14
+          if-no-files-found: error
