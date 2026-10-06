@@ -8,6 +8,10 @@ function esc(str) {
 const CATEGORY_TH = { IT: 'ไอที', Language: 'ภาษา', Art: 'ศิลปะ', Music: 'ดนตรี', Other: 'อื่น ๆ' };
 const categoryLabel = (c) => CATEGORY_TH[c] || c;
 
+// การ์ดโปรไฟล์เป็นรูป SVG จากบริการ PHP แยก (card-service/) — ว่าง = ยังไม่ได้ตั้ง CARD_SERVICE_URL
+const CARD_URL = (document.querySelector('meta[name="kb-card-url"]')?.content || '').replace(/^__CARD_URL__$/, '');
+const cardLink = (userId) => `${CARD_URL}/card.php?user=${encodeURIComponent(userId)}`;
+
 // วงกลมตัวอักษรแรกของชื่อ แทนรูปโปรไฟล์
 // สีรูปโปรไฟล์คำนวณจากชื่อ — คนเดิมได้สีเดิมทุกครั้ง แต่ละคนสีต่างกัน
 const AVATAR_HUES = [217, 152, 330, 268, 28, 190, 45, 0, 290, 170];
@@ -652,6 +656,8 @@ async function loadProfile() {
     document.getElementById('profile-bio').value = data.user.bio || '';
     updatePrivacyBar(data);
     renderEmailStatus(data);
+    document.getElementById('my-card').hidden = !CARD_URL;
+    if (CARD_URL) document.getElementById('my-card-link').href = cardLink(data.user._id);
     document.getElementById('identity-username').value = data.user.username;
     document.getElementById('identity-email').value = data.user.email;
     // รอให้รีวิว/รายการบล็อกโหลดเสร็จ ความสูงของโปรไฟล์จะได้นิ่ง (openMyData เลื่อนลงไปส่วนล่างต่อ)
@@ -735,6 +741,7 @@ async function showUserProfile(userId) {
     </div>
     <p class="profile-bio">${esc(user.bio || 'ยังไม่ได้เขียนแนะนำตัว')}</p>
     <div class="skill-list">${skills.map(skillTag).join('') || '<span class="muted">ยังไม่ได้ระบุทักษะ</span>'}</div>
+    ${CARD_URL ? `<p class="card-row">🪪 <a href="${esc(cardLink(user._id))}" target="_blank" rel="noopener">ดูการ์ดโปรไฟล์ (รูปภาพ)</a></p>` : ''}
     ${mainAction}
     <div id="user-recent-posts"></div>
     <hr class="divider" />

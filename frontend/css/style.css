@@ -564,6 +564,10 @@ textarea.input { resize: vertical; min-height: 84px; }
 .delete-list { margin: 0 0 0.75rem 1.1rem; font-size: 0.88rem; color: var(--text-muted); }
 .delete-list li { margin-bottom: 0.2rem; }
 
+/* ===== การ์ดโปรไฟล์ (บริการ PHP) ===== */
+.card-row { font-size: 0.88rem; margin: 0.25rem 0 0.9rem; }
+.card-row a { font-weight: 600; }
+
 /* ===== ยืนยันอีเมล / เสนอทักษะใหม่ ===== */
 .verified-badge, .unverified-badge { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; vertical-align: middle; white-space: nowrap; }
 .verified-badge { background: var(--success-pale); color: var(--success); }

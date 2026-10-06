@@ -1,6 +1,7 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 # Dashboard → New → Blueprint → เลือก repo นี้ แล้วกรอก MONGODB_URI ตอนสร้าง
 services:
+  # เว็บหลัก (Node.js) — frontend/ + backend/
   - type: web
     name: knowbridge
     runtime: node
@@ -14,3 +15,21 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+
+  # การ์ดโปรไฟล์ (PHP 8.4 + Apache) — card-service/
+  # ดึงโปรไฟล์สาธารณะจาก API ของเว็บหลัก แล้ววาดเป็นรูป SVG
+  # สร้างเสร็จแล้วเอา URL ของ service นี้ไปตั้งเป็น CARD_SERVICE_URL ของเว็บหลัก ปุ่มการ์ดถึงจะขึ้น
+  - type: web
+    name: knowbridge-card
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./card-service/Dockerfile
+    dockerContext: ./card-service
+    healthCheckPath: /health.php
+    buildFilter:
+      paths:
+        - card-service/**
+    envVars:
+      - key: KNOWBRIDGE_API_URL
+        value: https://knowbridge-ufsn.onrender.com

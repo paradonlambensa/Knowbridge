@@ -34,6 +34,15 @@ app.set('trust proxy', 1);
 // security headers (helmet): ห้ามเว็บอื่นเอาไปฝังใน iframe, จำกัดที่มาของสคริปต์/สไตล์/ฟอนต์ ฯลฯ
 // หน้าเว็บยังใช้ onclick="..." และสคริปต์สั้น ๆ ใน <head> เลยต้องอนุญาต inline script
 const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER;
+// การ์ดโปรไฟล์ = บริการ PHP แยก (card-service/) — ไม่ตั้ง CARD_SERVICE_URL = ซ่อนปุ่มการ์ด
+const CARD_ORIGIN = (() => {
+  try {
+    const url = new URL(process.env.CARD_SERVICE_URL);
+    return ['http:', 'https:'].includes(url.protocol) ? url.origin : '';
+  } catch (e) {
+    return '';
+  }
+})();
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -42,6 +51,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
       connectSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', ...(CARD_ORIGIN ? [CARD_ORIGIN] : [])],
       frameAncestors: ["'none'"],
       // ตอนรันในเครื่องเป็น http — ไม่บังคับเปลี่ยนเป็น https
       upgradeInsecureRequests: isProduction ? [] : null
@@ -61,7 +71,7 @@ app.get(['/', '/index.html'], async (req, res, next) => {
     const origin = process.env.APP_URL
       || (/^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${req.protocol}://${host}` : '');
     const html = await fs.readFile(INDEX_PATH, 'utf8');
-    res.type('html').send(html.replaceAll('__ORIGIN__', origin.replace(/\/$/, '')));
+    res.type('html').send(html.replaceAll('__ORIGIN__', origin.replace(/\/$/, '')).replaceAll('__CARD_URL__', CARD_ORIGIN));
   } catch (e) {
     next(e);
   }

@@ -1,6 +1,7 @@
 // ทดสอบ flow หลักทั้งหมดกับฐานข้อมูลแยก (ค่าเริ่มต้น knowbridge_test) ไม่แตะข้อมูลเว็บจริง
 //   npm test                         → เปิด server ให้เอง แล้วทดสอบ (รวมเทส restart server)
 //   BASE_URL=http://... npm test     → ทดสอบกับ server ที่เปิดอยู่แล้ว (ข้ามเทส restart)
+//   PHP_BIN=<path ของ php> npm test → เทสบริการการ์ดโปรไฟล์ (card-service/ เขียนด้วย PHP) ด้วย
 // สร้างบัญชีใหม่ทุกครั้งที่รัน จึงรันซ้ำได้โดยไม่ต้องล้างข้อมูล
 const { spawn } = require('child_process');
 const http = require('http');
@@ -679,6 +680,37 @@ async function run() {
     }).on('error', reject);
   });
   check('Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ', !evilHome.includes('<script>x') && !evilHome.includes('__ORIGIN__'));
+  check('ไม่ได้ตั้ง CARD_SERVICE_URL → ไม่มีลิงก์การ์ดในหน้าเว็บ', home.includes('name="kb-card-url" content=""') && !home.includes('__CARD_URL__'));
+
+  // --- การ์ดโปรไฟล์: บริการ PHP แยก (card-service/) ดึงโปรไฟล์สาธารณะจาก server นี้ ---
+  if (process.env.PHP_BIN && ownServer) {
+    const CARD = `http://127.0.0.1:${Number(PORT) + 12}`;
+    const php = spawn(process.env.PHP_BIN, ['-S', CARD.slice(7), '-t', 'card-service/public'], {
+      cwd: path.join(__dirname, '..'), env: { ...process.env, KNOWBRIDGE_API_URL: BASE }, stdio: 'ignore'
+    });
+    try {
+      let up = false;
+      for (let i = 0; i < 40 && !up; i++) {
+        await sleep(250);
+        up = await fetch(CARD + '/health.php').then(r => r.ok).catch(() => false);
+      }
+      check('บริการการ์ด (PHP) เปิดได้', up);
+      const cardRes = await fetch(`${CARD}/card.php?user=${B.id}`);
+      const svg = await cardRes.text();
+      check('การ์ดโปรไฟล์ (PHP) เป็น SVG มีชื่อ คะแนน และทักษะของผู้ใช้',
+        cardRes.status === 200 && (cardRes.headers.get('content-type') || '').startsWith('image/svg+xml') &&
+        svg.includes(B.username) && svg.includes('English') && /★<\/tspan> [\d.]+ · \d+ รีวิว/.test(svg), `HTTP ${cardRes.status}`);
+      check('การ์ด (PHP): ไม่มีอีเมลหลุดออกไป', !svg.includes(B.profile.user.email));
+      check('การ์ด (PHP): id ผิดรูปแบบ → 400, ไม่มีผู้ใช้นี้ → 404',
+        (await fetch(`${CARD}/card.php?user=xyz`)).status === 400 && (await fetch(`${CARD}/card.php?user=${'0'.repeat(24)}`)).status === 404);
+      check('การ์ด (PHP): ดาวน์โหลดเป็นไฟล์ .svg ได้',
+        /attachment; filename="knowbridge-/.test((await fetch(`${CARD}/card.php?user=${B.id}&download=1`)).headers.get('content-disposition') || ''));
+      const page = await (await fetch(`${CARD}/?user=${encodeURIComponent(BASE + '/#user=' + B.id)}`)).text();
+      check('หน้าแรกบริการการ์ด (PHP): วางลิงก์ที่มี id แล้วได้รูปการ์ด', page.includes(`card.php?user=${B.id}`));
+    } finally {
+      php.kill();
+    }
+  }
 
   // --- id ไม่ถูกต้อง ---
   check('profile id มั่ว → 404', (await api(null, '/api/user/xyz/profile')).status === 404);
@@ -701,8 +733,13 @@ async function run() {
     await new Promise(r => fakeResend.listen(0, '127.0.0.1', r));
     await startServer({
       RATE_LIMIT: 'on', DEMO_ACCOUNTS: 'off',
-      RESEND_API_KEY: 're_test_fake', RESEND_API_URL: `http://127.0.0.1:${fakeResend.address().port}`
+      RESEND_API_KEY: 're_test_fake', RESEND_API_URL: `http://127.0.0.1:${fakeResend.address().port}`,
+      CARD_SERVICE_URL: 'http://127.0.0.1:4011/'
     });
+    const home2 = await fetch(BASE + '/');
+    check('ตั้ง CARD_SERVICE_URL แล้ว: หน้าเว็บรู้ URL การ์ด และ CSP ยอมให้โหลดรูปจากบริการการ์ด',
+      (await home2.text()).includes('name="kb-card-url" content="http://127.0.0.1:4011"') &&
+      (home2.headers.get('content-security-policy') || '').includes("img-src 'self' data: http://127.0.0.1:4011"));
     let r = await post(A, '/api/account/verify-email/send', {});
     check('ส่งอีเมลไม่สำเร็จ (Resend ปฏิเสธ) → บอกผู้ใช้ตามจริง ไม่ขึ้นว่าส่งแล้ว',
       r.status === 502 && mailHits.some(m => m.to?.[0] === A.profile.user.email), `${r.status} hits=${mailHits.length}`);

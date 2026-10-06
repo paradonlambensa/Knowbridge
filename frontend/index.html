@@ -22,6 +22,8 @@
   <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="KnowBridge — เชื่อมความรู้ เชื่อมคน" />
   <meta name="twitter:card" content="summary_large_image" />
+  <!-- URL ของบริการการ์ดโปรไฟล์ (PHP) — server ใส่ให้จาก CARD_SERVICE_URL ว่าง = ซ่อนปุ่มการ์ด -->
+  <meta name="kb-card-url" content="__CARD_URL__" />
   <script>
     // ใส่ธีมที่เคยเลือกไว้ก่อนหน้าเว็บแสดง จะได้ไม่กระพริบเป็นสีขาวก่อนตอนเปิดโหมดมืด
     try { const t = localStorage.getItem('kb-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -393,6 +395,8 @@
       </details>
       <button class="btn btn-primary btn-block" onclick="saveProfile()">บันทึก</button>
       <p id="profile-msg" class="form-msg"></p>
+      <p id="my-card" class="card-row" hidden>🪪 <a id="my-card-link" target="_blank" rel="noopener">การ์ดโปรไฟล์ของฉัน</a>
+        <span class="muted">— รูปภาพไว้แชร์ หรือแนบในพอร์ตโฟลิโอ</span></p>
       <details class="pw-section" id="identity-section">
         <summary>เปลี่ยนชื่อผู้ใช้หรืออีเมล</summary>
         <form id="identity-form">
