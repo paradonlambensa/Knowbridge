@@ -99,6 +99,7 @@
           <div><b data-stat="exchanges">0</b>การแลกเปลี่ยน</div>
           <div><b data-stat="posts">0</b>โพสต์ในชุมชน</div>
         </div>
+        <p class="live-pill" id="online-pill" hidden><span class="live-dot" aria-hidden="true"></span>ออนไลน์ตอนนี้ <b id="online-count">0</b> คน</p>
       </div>
     </section>
 
@@ -157,7 +158,7 @@
     <section class="section feed-page">
       <div class="container feed-container">
         <div class="feed-head">
-          <h2>ชุมชน</h2>
+          <h2>ชุมชน <span class="live-badge" id="feed-live" hidden title="ถูกใจ ความคิดเห็น และโพสต์ใหม่อัปเดตเองไม่ต้องรีเฟรช"><span class="live-dot" aria-hidden="true"></span>สด</span></h2>
           <p class="section-sub">แชร์ความรู้ เคล็ดลับ หรือถามคำถามกับทุกคน</p>
         </div>
 
@@ -179,7 +180,8 @@
       <article class="container legal">
         <p class="eyebrow">PDPA</p>
         <h1>นโยบายความเป็นส่วนตัว</h1>
-        <p class="muted">ปรับปรุงล่าสุด <span id="privacy-updated">5 ตุลาคม 2569</span></p>
+        <p class="muted">ปรับปรุงล่าสุด <span id="privacy-updated">7 ตุลาคม 2569</span>
+          · <span id="privacy-change">เพิ่มเรื่องสถานะออนไลน์ที่คู่แลกเปลี่ยนเห็น (ปิดได้ในโปรไฟล์)</span></p>
 
         <div class="legal-summary">
           <b>สรุปสั้น ๆ</b>
@@ -203,6 +205,8 @@
           <li><b>ความปลอดภัย</b> — การรายงาน การบล็อก และการแจ้งเตือน</li>
           <li><b>ข้อมูลทางเทคนิค</b> — คุกกี้เข้าสู่ระบบ และหมายเลข IP ที่ใช้นับจำนวนครั้งเพื่อกันการเดารหัสผ่านและสแปม
             (เก็บในหน่วยความจำไม่เกิน 1 ชั่วโมง ไม่บันทึกลงฐานข้อมูล)</li>
+          <li><b>สถานะออนไลน์</b> — ตอนนี้เปิดเว็บอยู่หรือไม่ และเวลาที่ใช้งานล่าสุด (เก็บในหน่วยความจำของ server เท่านั้น ไม่บันทึกลงฐานข้อมูล
+            หายไปเมื่อ server เริ่มใหม่) รวมถึงการตั้งค่าว่าจะให้คู่แลกเปลี่ยนเห็นสถานะนี้หรือไม่</li>
         </ul>
         <p>เราไม่ขอชื่อจริง เบอร์โทร ที่อยู่ วันเกิด หรือข้อมูลอ่อนไหว เช่น ศาสนา สุขภาพ
           กรุณาอย่าใส่ข้อมูลเหล่านี้ในโปรไฟล์ โพสต์ หรือแชท ถ้าไม่จำเป็น</p>
@@ -220,9 +224,11 @@
         <ul>
           <li><b>ทุกคน</b> (รวมคนที่ไม่ได้เข้าสู่ระบบ) — ชื่อผู้ใช้ คำแนะนำตัว ทักษะ คะแนนและรีวิว โพสต์ ความคิดเห็น จำนวนถูกใจ
             และป้าย “ยืนยันอีเมลแล้ว” (ไม่แสดงตัวอีเมล)</li>
-          <li><b>คู่แลกเปลี่ยนของคุณ</b> — ข้อความในคำขอ แชท และนัดหมาย</li>
+          <li><b>คู่แลกเปลี่ยนของคุณ</b> (ที่ตอบรับกันแล้ว) — ข้อความในคำขอ แชท นัดหมาย ว่าคุณอ่านข้อความแล้ว กำลังพิมพ์
+            และสถานะออนไลน์/ใช้งานล่าสุด (ปิดสถานะออนไลน์ได้ในโปรไฟล์)</li>
           <li><b>ผู้ดูแลระบบ</b> — เนื้อหาที่ถูกรายงาน ทักษะที่ผู้ใช้เสนอ (พร้อมชื่อผู้เสนอ) และจัดการบัญชีที่ทำผิดกติกา</li>
           <li><b>อีเมล</b> — ไม่แสดงให้ผู้ใช้คนอื่นเห็น</li>
+          <li><b>จำนวนคนที่ออนไลน์</b> — แสดงบนหน้าแรกเป็นตัวเลขรวม ไม่บอกว่าใคร</li>
         </ul>
 
         <h2>5. ผู้ให้บริการภายนอก และการส่งข้อมูลไปต่างประเทศ</h2>
@@ -435,6 +441,8 @@
       <section id="my-data">
         <h3 class="subheading" style="margin-bottom:0.35rem">ข้อมูลของฉัน</h3>
         <p class="muted small-text">ดูว่าเราเก็บข้อมูลอะไรและใช้ทำอะไรใน <a href="#privacy" onclick="closeProfile()">นโยบายความเป็นส่วนตัว</a></p>
+        <label class="check-field"><input type="checkbox" id="presence-toggle" />
+          <span>ให้คู่แลกเปลี่ยนเห็นว่าฉันออนไลน์อยู่ หรือใช้งานล่าสุดเมื่อไร</span></label>
         <a class="btn btn-outline btn-block" href="/api/account/export" download>ดาวน์โหลดข้อมูลของฉัน (JSON)</a>
         <details class="pw-section danger-zone" id="delete-section">
           <summary>ลบบัญชี</summary>
@@ -490,6 +498,7 @@
         <button class="icon-btn" onclick="closeChat()" aria-label="ปิด">✕</button>
       </div>
       <div id="chat-messages"></div>
+      <div id="chat-typing" class="typing" hidden aria-live="polite"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="chat-typing-name"></span> กำลังพิมพ์…</div>
       <form class="chat-input-bar" onsubmit="event.preventDefault(); sendChat()">
         <input id="chat-input" class="input" type="text" placeholder="พิมพ์ข้อความ..." autocomplete="off" />
         <button class="btn btn-primary" type="submit">ส่ง</button>

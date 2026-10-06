@@ -18,7 +18,7 @@ function extractTags(text) {
   return [...tags];
 }
 
-module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId, moderation, limits }) {
+module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, isValidId, moderation, limits, liveStats }) {
   const router = express.Router();
 
   // เนื้อหาที่ถูกซ่อน (รายงานครบ) เห็นได้แค่เจ้าของกับแอดมิน
@@ -111,6 +111,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       post._id = insertedId;
       // ให้ทุกคนที่เปิดฟีดอยู่เห็นปุ่ม "มีโพสต์ใหม่"
       io.emit('feed:new', { post_id: insertedId, author_id: req.session.userId });
+      liveStats.changed();
       res.json({ success: true, post: (await present([post], req.session.userId))[0] });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
@@ -127,6 +128,8 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       });
       if (!deletedCount) return res.status(403).json({ success: false, error: 'ลบได้เฉพาะโพสต์ของตัวเอง' });
       await db.comments.deleteMany({ post_id: new ObjectId(req.params.id) });
+      io.emit('feed:delete', { post_id: req.params.id });
+      liveStats.changed();
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false });
@@ -151,6 +154,8 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       if (!alreadyLiked && !post.author_id.equals(me)) {
         notify(post.author_id, { type: 'like', from: req.session.username, post_id: postId, like_count: updated.likes.length });
       }
+      // ตัวเลขอย่างเดียว ไม่บอกว่าใครกด
+      io.emit('feed:counts', { post_id: req.params.id, like_count: updated.likes.length });
       res.json({ success: true, liked: !alreadyLiked, like_count: updated.likes.length });
     } catch (e) {
       res.status(500).json({ success: false });
@@ -204,6 +209,8 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       if (post.author_id.toString() !== req.session.userId) {
         notify(post.author_id, { type: 'comment', from: req.session.username, post_id: postId, preview: text.slice(0, 80), comment_count: post.comment_count });
       }
+      // คนที่เปิดความคิดเห็นของโพสต์นี้อยู่จะโหลดรายการใหม่เอง (ผ่าน API ที่กรองการบล็อกให้)
+      io.emit('feed:counts', { post_id: req.params.id, comment_count: post.comment_count });
       res.json({
         success: true,
         comment_count: post.comment_count,
@@ -225,6 +232,7 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       const post = await db.posts.findOneAndUpdate(
         { _id: comment.post_id }, { $inc: { comment_count: -1 } }, { projection: { comment_count: 1 }, returnDocument: 'after' }
       );
+      if (post) io.emit('feed:counts', { post_id: comment.post_id.toString(), comment_count: post.comment_count });
       res.json({ success: true, comment_count: post?.comment_count ?? 0 });
     } catch (e) {
       res.status(500).json({ success: false });

@@ -6,7 +6,7 @@ const { CATEGORIES, MAX_SKILLS_PER_TYPE, normalizeSkillName } = require('../lib/
 
 const MAX_PENDING_PER_USER = 5;
 
-module.exports = function skillRequestsRouter({ db, ObjectId, notify, requireLogin, requireAdmin, isValidId, limits, CI }) {
+module.exports = function skillRequestsRouter({ db, ObjectId, notify, requireLogin, requireAdmin, isValidId, limits, CI, liveStats }) {
   const router = express.Router();
 
   router.post('/skills/suggest', requireLogin, limits.suggest, async (req, res) => {
@@ -102,6 +102,7 @@ module.exports = function skillRequestsRouter({ db, ObjectId, notify, requireLog
       if (!skill) {
         skill = { name, category, created_at: new Date(), suggested: true };
         skill._id = (await db.skills.insertOne(skill)).insertedId;
+        liveStats.changed();
       }
       await db.skill_requests.updateOne(
         { _id: request._id }, { $set: { status: 'approved', skill_id: skill._id, name: skill.name, category: skill.category, ...resolved } }

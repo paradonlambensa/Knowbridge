@@ -2,7 +2,7 @@
 
 // เปลี่ยนวันที่นี้ทุกครั้งที่แก้เนื้อหาหน้านโยบาย (#privacy ใน frontend/index.html)
 // ผู้ใช้ที่รับทราบเวอร์ชันเก่าไว้จะเห็นแถบให้กดรับทราบใหม่
-const PRIVACY_VERSION = '2026-10-05';
+const PRIVACY_VERSION = '2026-10-07';
 const DELETED_NAME = 'ผู้ใช้ที่ลบบัญชีแล้ว';
 
 // รวมข้อมูลทั้งหมดที่เกี่ยวกับผู้ใช้เป็น JSON ให้ดาวน์โหลด
@@ -49,6 +49,7 @@ async function exportUserData({ db }, uid) {
       username: user.username,
       email: user.email,
       email_verified: !!user.email_verified,
+      show_online_status: !user.hide_presence,
       bio: user.bio || '',
       created_at: user.created_at || user._id.getTimestamp(),
       privacy_version: user.privacy_version || null,

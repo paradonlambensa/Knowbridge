@@ -73,21 +73,37 @@ systemDark.addEventListener('change', renderThemeToggle);
 async function loadStats() {
   const res = await fetch('/api/stats');
   if (!res.ok) return;
-  const stats = await res.json();
-  document.getElementById('stats').hidden = false;
+  applyStats(await res.json());
+}
+
+// นับจากค่าที่แสดงอยู่ไปค่าใหม่ใน 0.8 วินาที — ค่าเปลี่ยนระหว่างเปิดหน้าอยู่จะกระพริบให้เห็น
+function animateNumber(el, to, highlight = false) {
+  const from = Number(el.dataset.value || 0);
+  el.dataset.value = to;
+  if (from === to) return;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  document.querySelectorAll('#stats [data-stat]').forEach(el => {
-    const target = stats[el.dataset.stat] || 0;
-    if (reduceMotion || target === 0) { el.textContent = target.toLocaleString('th-TH'); return; }
-    // นับขึ้นจาก 0 ใน 0.8 วินาที
-    const start = performance.now();
-    const step = (now) => {
-      const t = Math.min((now - start) / 800, 1);
-      el.textContent = Math.round(target * (1 - Math.pow(1 - t, 3))).toLocaleString('th-TH');
-      if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  });
+  if (highlight) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+  if (reduceMotion) { el.textContent = to.toLocaleString('th-TH'); return; }
+  const start = performance.now();
+  const step = (now) => {
+    const t = Math.min((now - start) / 800, 1);
+    el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))).toLocaleString('th-TH');
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+let statsShown = false;
+function applyStats(stats) {
+  document.getElementById('stats').hidden = false;
+  document.querySelectorAll('#stats [data-stat]').forEach(el => animateNumber(el, stats[el.dataset.stat] || 0, statsShown));
+  statsShown = true;
+  if (typeof stats.online === 'number') setOnlineCount(stats.online);
+}
+
+function setOnlineCount(n) {
+  document.getElementById('online-pill').hidden = !n;
+  if (n) animateNumber(document.getElementById('online-count'), n);
 }
 
 function ratingHtml(avg, count) {
@@ -193,6 +209,7 @@ async function login() {
   const data = await res.json();
   if (data.success) {
     closeModal();
+    reconnectSocket();
     showLoggedIn(data.username);
     await loadProfile();
     searchSkills();
@@ -220,6 +237,7 @@ async function register() {
   const data = await res.json();
   if (data.success) {
     closeModal();
+    reconnectSocket();
     showLoggedIn(username);
     await loadProfile();
     searchSkills();
@@ -281,7 +299,7 @@ function updatePrivacyBar(profile) {
   bar.hidden = !outdated;
   if (outdated) {
     bar.querySelector('p').innerHTML = profile.user.privacy_version
-      ? 'เราปรับปรุง<a href="#privacy">นโยบายความเป็นส่วนตัว</a> เพิ่มเรื่องการยืนยันอีเมล การเปลี่ยนชื่อผู้ใช้/อีเมล และการเสนอทักษะใหม่'
+      ? `เราปรับปรุง<a href="#privacy">นโยบายความเป็นส่วนตัว</a> — ${esc(document.getElementById('privacy-change').textContent)}`
       : 'เราเพิ่ม<a href="#privacy">นโยบายความเป็นส่วนตัว</a> อธิบายว่าเก็บข้อมูลอะไร ใช้ทำอะไร และคุณดาวน์โหลดหรือลบข้อมูลของตัวเองได้อย่างไร';
   }
 }
@@ -385,6 +403,15 @@ document.getElementById('identity-form').addEventListener('submit', async (e) =>
         : 'บันทึกชื่อผู้ใช้/อีเมลใหม่แล้ว');
   } catch (err) {}
   location.reload();
+});
+
+document.getElementById('presence-toggle').addEventListener('change', async (e) => {
+  const visible = e.target.checked;
+  const res = await fetch('/api/account/presence', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible })
+  });
+  if (!res.ok) { e.target.checked = !visible; return showToast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  showToast(visible ? 'คู่แลกเปลี่ยนจะเห็นว่าคุณออนไลน์อยู่' : 'ซ่อนสถานะออนไลน์แล้ว<small>คู่แลกเปลี่ยนจะไม่เห็นว่าคุณออนไลน์หรือใช้งานล่าสุดเมื่อไร</small>');
 });
 
 // ===== เสนอทักษะใหม่ =====
@@ -542,7 +569,6 @@ function markChatRead(requestId) {
 }
 
 async function handleNotify(n) {
-  if (n.type === 'like' || n.type === 'comment') bumpPostCount(n);
   // ทักษะที่เสนอผ่านแล้ว → โปรไฟล์ที่เปิดอยู่ต้องเห็นทักษะใหม่ในรายการ
   if ((n.type === 'skill_approved' || n.type === 'skill_rejected') && document.getElementById('modal-profile').style.display !== 'none') {
     loadSkillOptions();
@@ -567,16 +593,107 @@ function ensureSocket() {
   if (socket) return socket;
   socket = io();
   socket.on('newMessage', (msg) => {
-    if (msg.request_id === currentRequestId) appendMessage(msg);
+    if (msg.request_id !== currentRequestId) return;
+    if (msg.sender_id !== currentUserId) hideTyping();
+    appendMessage(msg);
   });
   socket.on('notify', handleNotify);
   socket.on('feed:new', onFeedNew);
+  socket.on('feed:counts', onFeedCounts);
+  socket.on('feed:delete', onFeedDelete);
+  socket.on('stats', applyStats);
+  socket.on('presence:count', ({ online }) => setOnlineCount(online));
+  socket.on('presence', updatePresence);
+  socket.on('typing', onTyping);
+  socket.on('chat:read', onChatRead);
   socket.on('chatError', (message) => showToast(esc(message)));
   // หลุดแล้วต่อใหม่ (เช่น server restart) ต้อง join ห้องแชทที่เปิดค้างไว้อีกครั้ง
   socket.on('connect', () => {
     if (currentRequestId) socket.emit('joinRoom', currentRequestId);
+    document.getElementById('feed-live').hidden = false;
   });
+  socket.on('disconnect', () => { document.getElementById('feed-live').hidden = true; });
   return socket;
+}
+
+// ต่อ socket ครั้งแรกก่อน login → ต่อใหม่หลัง login ให้ server รู้ว่าเราเป็นใคร (คุกกี้ session ใหม่)
+function reconnectSocket() {
+  if (!socket) return ensureSocket();
+  socket.disconnect();
+  socket.connect();
+}
+
+// ===== สถานะออนไลน์ของคู่แลกเปลี่ยน =====
+const presenceOf = {}; // userId → { online, last_seen, hidden }
+
+function presenceText(p) {
+  if (!p || p.hidden) return '';
+  if (p.online) return '<span class="online-text">● ออนไลน์อยู่</span>';
+  if (!p.last_seen) return '';
+  const s = (Date.now() - new Date(p.last_seen)) / 1000;
+  return s < 60 ? 'ใช้งานล่าสุดเมื่อสักครู่' : s < 7 * 86400 ? `ใช้งานล่าสุด ${esc(timeAgo(p.last_seen))}ที่แล้ว` : '';
+}
+
+// วงกลมโปรไฟล์ + จุดเขียวเมื่อออนไลน์ (อัปเดตเองเมื่อสถานะเปลี่ยน)
+function avatarWithPresence(name, userId) {
+  const on = presenceOf[userId]?.online ? ' on' : '';
+  return `<span class="presence-wrap">${avatar(name)}<i class="presence-dot${on}" data-presence="${esc(userId)}" aria-hidden="true"></i></span>`;
+}
+
+function updatePresence(p) {
+  presenceOf[p.user_id] = p;
+  document.querySelectorAll(`[data-presence="${CSS.escape(p.user_id)}"]`).forEach(el => el.classList.toggle('on', !!p.online));
+  const req = currentRequestId && dashboardRequests[currentRequestId];
+  if (req && String(req.other_user_id) === p.user_id) renderChatPresence();
+}
+
+function renderChatPresence() {
+  const el = document.getElementById('chat-presence');
+  const req = dashboardRequests[currentRequestId];
+  if (!el || !req) return;
+  el.innerHTML = presenceText(presenceOf[req.other_user_id]);
+  el.hidden = !el.innerHTML;
+}
+
+// ===== กำลังพิมพ์… =====
+let typingTimer = null;
+let lastTypingSent = 0;
+
+function onTyping({ request_id, user_id, name }) {
+  if (request_id !== currentRequestId || user_id === currentUserId) return;
+  document.getElementById('chat-typing-name').textContent = name;
+  document.getElementById('chat-typing').hidden = false;
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(hideTyping, 3500);
+}
+
+function hideTyping() {
+  clearTimeout(typingTimer);
+  document.getElementById('chat-typing').hidden = true;
+}
+
+document.getElementById('chat-input').addEventListener('input', (e) => {
+  if (!currentRequestId || !socket || !e.target.value.trim()) return;
+  if (Date.now() - lastTypingSent < 1500) return;
+  lastTypingSent = Date.now();
+  socket.emit('typing', currentRequestId);
+});
+
+// ===== อ่านแล้ว: ขึ้นใต้ข้อความล่าสุดของเราที่อีกฝ่ายอ่านแล้ว =====
+let partnerLastRead = null;
+
+function onChatRead({ request_id, user_id, at }) {
+  if (request_id !== currentRequestId || user_id === currentUserId) return;
+  partnerLastRead = new Date(at);
+  renderReadReceipt();
+}
+
+function renderReadReceipt() {
+  const container = document.getElementById('chat-messages');
+  container.querySelectorAll('.read-receipt').forEach(el => el.remove());
+  if (!partnerLastRead) return;
+  const read = [...container.querySelectorAll('.msg.mine')].filter(m => new Date(m.dataset.at) <= partnerLastRead);
+  read.at(-1)?.insertAdjacentHTML('beforeend', '<span class="read-receipt">อ่านแล้ว</span>');
 }
 
 // ===== Profile =====
@@ -656,6 +773,7 @@ async function loadProfile() {
     document.getElementById('profile-bio').value = data.user.bio || '';
     updatePrivacyBar(data);
     renderEmailStatus(data);
+    document.getElementById('presence-toggle').checked = !data.user.hide_presence;
     document.getElementById('my-card').hidden = !CARD_URL;
     if (CARD_URL) document.getElementById('my-card-link').href = cardLink(data.user._id);
     document.getElementById('identity-username').value = data.user.username;
@@ -912,7 +1030,7 @@ function renderRequestCard(r, isReceived) {
     <div class="request">
       <div class="request-top">
         <div class="person" onclick="showUserProfile('${esc(r.other_user_id)}')">
-          ${avatar(r.other_username)}
+          ${r.other_presence ? avatarWithPresence(r.other_username, r.other_user_id) : avatar(r.other_username)}
           <div style="min-width:0">
             <h3>${esc(r.other_username)}</h3>
             <p class="request-msg">${esc(r.message || 'ไม่มีข้อความ')}</p>
@@ -944,7 +1062,10 @@ async function showDashboard() {
   const data = await res.json();
 
   dashboardRequests = {};
-  [...data.received, ...data.sent].forEach(r => { dashboardRequests[r._id] = r; });
+  [...data.received, ...data.sent].forEach(r => {
+    dashboardRequests[r._id] = r;
+    if (r.other_presence) presenceOf[r.other_user_id] = { user_id: r.other_user_id, ...r.other_presence };
+  });
 
   const empty = (text) => `<div class="empty"><b>${text}</b>ลองค้นหาผู้สอนจากหน้าแรก แล้วกด "ขอแลกเปลี่ยน"</div>`;
   document.getElementById('dashboard-received').innerHTML = data.received.length
@@ -1061,7 +1182,11 @@ async function openChat(requestId) {
   const name = req?.other_username || '';
   const next = req?.schedule?.at && new Date(req.schedule.at) > Date.now()
     ? `<p class="chat-sub">📅 นัดครั้งถัดไป ${esc(fmtDateTime(req.schedule.at))}</p>` : '';
-  document.getElementById('chat-title').innerHTML = `${avatar(name)}<div style="min-width:0"><h3>${esc(name)}</h3>${next}</div>`;
+  document.getElementById('chat-title').innerHTML = `${req ? avatarWithPresence(name, req.other_user_id) : avatar(name)}
+    <div style="min-width:0"><h3>${esc(name)}</h3><p class="chat-sub" id="chat-presence" hidden></p>${next}</div>`;
+  renderChatPresence();
+  hideTyping();
+  partnerLastRead = req?.other_last_read ? new Date(req.other_last_read) : null;
   const rateBtn = document.getElementById('chat-rate-btn');
   rateBtn.hidden = !req || req.status !== 'completed' || req.reviewed;
   rateBtn.onclick = () => openRating(requestId);
@@ -1083,6 +1208,7 @@ async function openChat(requestId) {
     const messages = await res.json();
     if (messages.length === 0) container.innerHTML = '<p class="chat-empty">ยังไม่มีข้อความ — ทักทายกันได้เลย 👋</p>';
     messages.forEach(msg => appendMessage(msg));
+    renderReadReceipt();
     if (req) req.unread = 0;
     refreshBadge();
   } catch (e) {
@@ -1096,11 +1222,13 @@ function appendMessage(msg) {
   const isMine = msg.sender_id?.toString() === currentUserId?.toString();
   const div = document.createElement('div');
   div.className = 'msg' + (isMine ? ' mine' : '');
+  div.dataset.at = msg.created_at;
   div.innerHTML = `
     ${isMine ? '' : `<span class="msg-name">${esc(msg.sender_name)}</span>`}
     <div class="msg-bubble">${esc(msg.text)}</div>
   `;
   container.appendChild(div);
+  if (isMine) renderReadReceipt();
   container.scrollTop = container.scrollHeight;
 }
 
@@ -1116,6 +1244,8 @@ function sendChat() {
 function closeChat() {
   document.getElementById('modal-chat').style.display = 'none';
   currentRequestId = null;
+  partnerLastRead = null;
+  hideTyping();
   showDashboard();
 }
 
@@ -1870,14 +2000,43 @@ document.addEventListener('click', (e) => {
   setFeedTag(link.dataset.tag);
 });
 
-// มีคนถูกใจ/แสดงความคิดเห็นในโพสต์ของเรา → อัปเดตตัวเลขบนโพสต์ที่แสดงอยู่ทันที
-function bumpPostCount(n) {
-  const postEl = document.getElementById('post-' + n.post_id);
+// ===== ฟีดแบบสด: ใครกดถูกใจ/แสดงความคิดเห็น/ลบโพสต์ ทุกคนที่เปิดฟีดอยู่เห็นทันที =====
+function onFeedCounts({ post_id, like_count, comment_count }) {
+  const postEl = document.getElementById('post-' + post_id);
   if (!postEl) return;
-  const counter = postEl.querySelector(`[data-action="${n.type === 'like' ? 'like' : 'comments'}"] .n`);
-  counter.textContent = (n.type === 'like' ? n.like_count : n.comment_count) || '';
-  const box = postEl.querySelector('.comments');
-  if (n.type === 'comment' && !box.hidden) { box.hidden = true; toggleComments(postEl, false); }
+  if (like_count !== undefined) {
+    const n = postEl.querySelector('[data-action="like"] .n');
+    if (n.textContent !== String(like_count || '')) { n.textContent = like_count || ''; flash(n); }
+  }
+  if (comment_count !== undefined) {
+    const n = postEl.querySelector('[data-action="comments"] .n');
+    if (n.textContent !== String(comment_count || '')) { n.textContent = comment_count || ''; flash(n); }
+    const box = postEl.querySelector('.comments');
+    // เปิดความคิดเห็นอยู่ → โหลดรายการใหม่ (ไม่ล้างข้อความที่กำลังพิมพ์)
+    if (!box.hidden && box.querySelectorAll('.comment').length !== comment_count) refreshCommentList(postEl);
+  }
+}
+
+function onFeedDelete({ post_id }) {
+  const postEl = document.getElementById('post-' + post_id);
+  if (!postEl) return;
+  postEl.classList.add('removing');
+  setTimeout(() => postEl.remove(), 300);
+}
+
+async function refreshCommentList(postEl) {
+  const list = postEl.querySelector('.comment-list');
+  if (!list) return;
+  const comments = await (await fetch(`/api/posts/${postEl.dataset.id}/comments`)).json();
+  const known = new Set([...list.querySelectorAll('.comment')].map(c => c.dataset.comment));
+  list.innerHTML = comments.map(renderComment).join('');
+  list.querySelectorAll('.comment').forEach(c => { if (!known.has(c.dataset.comment)) c.classList.add('fresh'); });
+}
+
+function flash(el) {
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
 }
 
 function onFeedNew({ author_id }) {
@@ -1963,6 +2122,7 @@ window.addEventListener('hashchange', route);
 
 renderThemeToggle();
 showDeletedNotice();
+ensureSocket();
 checkSession();
 searchSkills();
 loadStats();

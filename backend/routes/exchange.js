@@ -2,10 +2,17 @@
 const express = require('express');
 
 module.exports = function exchangeRouter({
-  db, ObjectId, notify, requireLogin, isValidId, moderation, limits,
+  db, ObjectId, io, notify, requireLogin, isValidId, moderation, limits, presence, liveStats,
   ACTIVE_STATUSES, getUnreadCounts, markChatRead, findAcceptedRequestForUser
 }) {
   const router = express.Router();
+
+  // บันทึกว่าอ่านแชทแล้ว + บอกอีกฝ่ายในห้อง (ขึ้น "อ่านแล้ว" ใต้ข้อความของเขา)
+  async function readChat(requestId, userId) {
+    const at = new Date();
+    await markChatRead(requestId, userId);
+    io.to(requestId).emit('chat:read', { request_id: requestId, user_id: userId, at });
+  }
 
   router.post('/exchange/request', requireLogin, limits.exchange, async (req, res) => {
     try {
@@ -46,10 +53,15 @@ module.exports = function exchangeRouter({
 
       const enriched = async (list, idField) => Promise.all(list.map(async ({ last_read, completed_by = [], ...r }) => {
         const user = await db.users.findOne({ _id: r[idField] });
+        const otherId = r[idField].toString();
+        const active = ACTIVE_STATUSES.includes(r.status);
         return {
           ...r,
           other_user_id: r[idField],
           other_username: user?.username || 'ไม่ทราบชื่อ',
+          // เห็นได้เฉพาะคู่ที่ตอบรับกันแล้ว: อีกฝ่ายอ่านแชทถึงตรงไหน และออนไลน์อยู่ไหม
+          other_last_read: active ? last_read?.[otherId] || null : null,
+          other_presence: active ? presence.statusOf(otherId) : null,
           reviewed: reviewedIds.has(r._id.toString()),
           unread: unread[r._id.toString()] || 0,
           completed_by_me: completed_by.some(id => id.toString() === me),
@@ -76,6 +88,7 @@ module.exports = function exchangeRouter({
         { $set: { status } }
       );
       if (updated) notify(updated.sender_id, { type: status, from: req.session.username, request_id: updated._id });
+    if (updated && status === 'accepted') liveStats.changed();
       res.json({ success: true });
     } catch (e) {
       res.json({ success: false });
@@ -115,7 +128,10 @@ module.exports = function exchangeRouter({
       );
       if (!request) return res.status(400).json({ success: false, error: 'ยืนยันได้เฉพาะการแลกเปลี่ยนที่กำลังดำเนินอยู่' });
       const bothDone = [request.sender_id, request.receiver_id].every(id => request.completed_by.some(c => c.equals(id)));
-      if (bothDone) await db.exchange_requests.updateOne({ _id: request._id }, { $set: { status: 'completed', completed_at: new Date() } });
+      if (bothDone) {
+      await db.exchange_requests.updateOne({ _id: request._id }, { $set: { status: 'completed', completed_at: new Date() } });
+      liveStats.changed();
+    }
       const other = request.sender_id.equals(me) ? request.receiver_id : request.sender_id;
       notify(other, { type: bothDone ? 'completed' : 'complete_request', from: req.session.username, request_id: request._id });
       res.json({ success: true, completed: bothDone });
@@ -132,7 +148,7 @@ module.exports = function exchangeRouter({
       const messages = await db.messages.find({
         request_id: new ObjectId(req.params.requestId)
       }).sort({ created_at: 1 }).toArray();
-      await markChatRead(req.params.requestId, req.session.userId);
+      await readChat(req.params.requestId, req.session.userId);
       res.json(messages);
     } catch (e) {
       res.json([]);
@@ -144,7 +160,7 @@ module.exports = function exchangeRouter({
     try {
       const request = await findAcceptedRequestForUser(req.params.requestId, req.session.userId);
       if (!request) return res.status(403).json({ success: false });
-      await markChatRead(req.params.requestId, req.session.userId);
+      await readChat(req.params.requestId, req.session.userId);
       res.json({ success: true });
     } catch (e) {
       res.json({ success: false });

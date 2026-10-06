@@ -190,9 +190,9 @@ async function run() {
   check('ยังไม่ตั้งทักษะ: บอกให้ไปตั้งโปรไฟล์', !mC.has_teach && !mC.has_learn && mC.matches.length === 0);
 
   // --- socket + แจ้งเตือน ---
-  const anon = await sio(null);
+  const anon = await sio(null); // ผู้เยี่ยมชม: เปิดค้างไว้ทั้งเทส เพื่อดูว่าได้อัปเดตสาธารณะอะไรบ้าง
   await sleep(300);
-  check('socket ที่ไม่ได้ login ถูกตัดการเชื่อมต่อ', anon.closed);
+  check('ผู้เยี่ยมชมต่อ socket ได้ (รับอัปเดตสาธารณะ)', !anon.closed);
   const [sA, sB, sC] = await Promise.all([sio(A), sio(B), sio(C)]);
 
   // --- คำขอแลกเปลี่ยน ---
@@ -237,15 +237,17 @@ async function run() {
   // --- แชท ---
   check('คนนอกอ่านประวัติแชทไม่ได้ (403)', (await api(C, '/api/chat/' + reqId)).status === 403);
   check('คนนอก mark read ไม่ได้ (403)', (await api(C, `/api/chat/${reqId}/read`, { method: 'POST' })).status === 403);
-  [sA, sB, sC].forEach(s => s.emit('joinRoom', reqId));
+  [sA, sB, sC, anon].forEach(s => s.emit('joinRoom', reqId));
   await sleep(800);
   sA.emit('sendMessage', { requestId: reqId, text: 'สวัสดี <b>Bob</b>', senderId: C.id, senderName: 'FAKE' });
   sC.emit('sendMessage', { requestId: reqId, text: 'แอบส่งจากคนนอก' });
+  anon.emit('sendMessage', { requestId: reqId, text: 'แอบส่งจากผู้เยี่ยมชม' });
   await sleep(1500);
   const gotB = sB.of('newMessage');
   check('B ได้รับข้อความแบบเรียลไทม์', gotB.length === 1 && gotB[0].text === 'สวัสดี <b>Bob</b>', JSON.stringify(gotB.map(m => m.text)));
   check('ชื่อ/ID ผู้ส่งมาจาก session ปลอมไม่ได้', gotB[0]?.sender_name === A.username && gotB[0]?.sender_id === A.id);
   check('คนนอกไม่ได้รับข้อความในห้อง', sC.of('newMessage').length === 0);
+  check('ผู้เยี่ยมชมเข้าห้องแชท/ส่งข้อความไม่ได้', anon.of('newMessage').length === 0 && !gotB.some(m => m.text === 'แอบส่งจากผู้เยี่ยมชม'));
   const nMsg = sB.of('notify').find(n => n.type === 'message');
   check('B ได้แจ้งเตือนข้อความใหม่พร้อมตัวอย่างข้อความ', nMsg?.request_id === reqId && nMsg?.preview === 'สวัสดี <b>Bob</b>');
   check('ผู้ส่งไม่ได้แจ้งเตือนข้อความของตัวเอง', !sA.of('notify').some(n => n.type === 'message'));
@@ -260,6 +262,36 @@ async function run() {
   check('เปิดแชทแล้วข้อความยังไม่อ่านกลับเป็น 0', nB.unread_messages === 0, JSON.stringify(nB));
   const nA = await json(api(A, '/api/notifications'));
   check('ข้อความของตัวเองไม่นับเป็นยังไม่อ่าน', nA.unread_messages === 0);
+  // --- เรียลไทม์ในแชท: อ่านแล้ว / กำลังพิมพ์ / สถานะออนไลน์ ---
+  await sleep(300);
+  check('A เห็นทันทีว่า B อ่านแชทแล้ว', sA.of('chat:read').some(e => e.request_id === reqId && e.user_id === B.id));
+  let sentToB = (await json(api(A, '/api/dashboard'))).sent.find(x => x._id === reqId);
+  check('dashboard: เห็นว่าคู่แลกเปลี่ยนอ่านถึงไหน และออนไลน์อยู่',
+    !!sentToB.other_last_read && sentToB.other_presence?.online === true, JSON.stringify(sentToB.other_presence));
+  sB.emit('typing', reqId);
+  sB.emit('typing', reqId); // ถี่เกิน → server ส่งต่อแค่ครั้งเดียว
+  await sleep(500);
+  check('กำลังพิมพ์: ส่งถึงอีกฝ่ายในห้องเท่านั้น (ไม่ถึงตัวเองและคนนอก)',
+    sA.of('typing').length === 1 && sA.of('typing')[0].name === B.username && sB.of('typing').length === 0 && sC.of('typing').length === 0);
+  const presenceSeen = sA.of('presence').length;
+  sB.ws.close();
+  await sleep(800);
+  const offline = sA.of('presence').slice(presenceSeen).find(x => x.user_id === B.id);
+  check('B ปิดเว็บ → A เห็นว่าออฟไลน์ พร้อมเวลาใช้งานล่าสุด', offline?.online === false && !!offline.last_seen, JSON.stringify(offline));
+  check('คนที่ไม่ใช่คู่แลกเปลี่ยนไม่รู้สถานะออนไลน์ของ B', !sC.of('presence').some(x => x.user_id === B.id) && anon.of('presence').length === 0);
+  const sB2 = await sio(B);
+  await sleep(800);
+  check('B กลับมา → A เห็นว่าออนไลน์', sA.of('presence').slice(presenceSeen).some(x => x.user_id === B.id && x.online === true));
+  j = await json(post(B, '/api/account/presence', { visible: false }));
+  await sleep(500);
+  sentToB = (await json(api(A, '/api/dashboard'))).sent.find(x => x._id === reqId);
+  check('B ซ่อนสถานะออนไลน์ → A เห็นเป็น "ซ่อน" ไม่รู้ว่าออนไลน์ไหม',
+    j.success && sentToB.other_presence?.hidden === true && sentToB.other_presence.online === false &&
+    sA.of('presence').some(x => x.user_id === B.id && x.hidden));
+  check('ไฟล์ข้อมูลของฉันบอกการตั้งค่าสถานะออนไลน์', (await json(api(B, '/api/account/export'))).account.show_online_status === false);
+  await post(B, '/api/account/presence', { visible: true });
+  check('จำนวนคนออนไลน์อัปเดตถึงผู้เยี่ยมชม', anon.of('presence:count').some(x => x.online >= 2), JSON.stringify(anon.of('presence:count')));
+  sB2.ws.close();
   [sA, sB, sC].forEach(s => s.ws.close());
 
   // --- นัดเวลา / แลกเปลี่ยนเสร็จ ---
@@ -342,6 +374,8 @@ async function run() {
   j = await json(post(B, `/api/posts/${postId}/like`, {}));
   await sleep(400);
   check('B กดถูกใจ', j.success && j.liked && j.like_count === 1);
+  check('ทุกคนที่เปิดฟีดอยู่ (รวมผู้เยี่ยมชม) เห็นตัวเลขถูกใจอัปเดตสด',
+    anon.of('feed:counts').some(e => e.post_id === postId && e.like_count === 1) && fB.of('feed:counts').some(e => e.post_id === postId));
   check('A ได้แจ้งเตือนถูกใจ', fA.of('notify').some(n => n.type === 'like' && n.from === B.username && n.post_id === postId));
   feed = await json(api(B, '/api/posts?tag=' + feedTag));
   check('ฟีดของ B บอกว่ากดถูกใจแล้ว', feed.posts[0].liked === true && feed.posts[0].like_count === 1 && !feed.posts[0].mine);
@@ -361,6 +395,8 @@ async function run() {
   j = await json(post(B, `/api/posts/${postId}/comments`, { text: 'ขอบคุณครับ' }));
   await sleep(400);
   check('B แสดงความคิดเห็น', j.success && j.comment_count === 1 && j.comment.mine);
+  check('ตัวเลขความคิดเห็นอัปเดตสดถึงทุกคน (ไม่ส่งเนื้อหาความคิดเห็น)',
+    anon.of('feed:counts').some(e => e.post_id === postId && e.comment_count === 1) && !anon.of('feed:counts').some(e => 'text' in e));
   const commentId = j.comment._id;
   check('A ได้แจ้งเตือนความคิดเห็น', fA.of('notify').some(n => n.type === 'comment' && n.preview === 'ขอบคุณครับ'));
   let comments = await json(api(null, `/api/posts/${postId}/comments`));
@@ -387,6 +423,12 @@ async function run() {
   j = await json(api(A, `/api/posts/${postId}`, { method: 'DELETE' }));
   comments = await json(api(null, `/api/posts/${postId}/comments`));
   check('A ลบโพสต์ตัวเองได้ ความคิดเห็นถูกลบตามไปด้วย', j.success && comments.length === 0);
+  await sleep(300);
+  check('โพสต์ที่ถูกลบหายจากฟีดของทุกคนทันที', anon.of('feed:delete').some(e => e.post_id === postId));
+  if (!anon.of('stats').length) await sleep(2500);
+  const liveStat = anon.of('stats').at(-1);
+  check('ตัวเลขหน้าแรกอัปเดตสดเมื่อมีโพสต์ใหม่', typeof liveStat?.posts === 'number' && typeof liveStat.online === 'number', JSON.stringify(liveStat));
+  check('/api/stats มีจำนวนคนออนไลน์', typeof (await json(api(null, '/api/stats'))).online === 'number');
   fA.ws.close(); fB.ws.close();
 
   // --- รายงาน / บล็อก / แอดมิน ---
@@ -754,6 +796,7 @@ async function run() {
     check('ใส่รหัสผิดเกิน 10 ครั้ง → ถูกพักชั่วคราว (429)', last.status === 429);
   }
 
+  anon.ws.close();
   await Promise.all([A, B, C, D, F].map(u => post(u, '/api/profile/update', { teach_skills: [], learn_skills: [] })));
   await post(A, '/api/logout', {});
   check('logout แล้ว session ใช้ไม่ได้', (await api(A, '/api/profile')).status === 401);

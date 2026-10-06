@@ -11,7 +11,8 @@ const RESET_TTL_MINUTES = 30;
 const EMAIL_FAILED = 'ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่ภายหลัง หรือแจ้งผู้ดูแลระบบ';
 
 module.exports = function accountRouter({
-  db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS, emailVerification
+  db, ObjectId, io, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS, emailVerification,
+  presence, liveStats, realtime
 }) {
   const router = express.Router();
   // เก็บแค่ hash ของ token — ถ้าฐานข้อมูลหลุด ก็เอา token ไปใช้ไม่ได้
@@ -125,6 +126,20 @@ module.exports = function accountRouter({
     }
   });
 
+  // แสดง/ซ่อนสถานะออนไลน์ที่คู่แลกเปลี่ยนเห็น
+  router.post('/account/presence', requireLogin, async (req, res) => {
+    try {
+      const visible = req.body.visible !== false;
+      const id = req.session.userId;
+      await db.users.updateOne({ _id: new ObjectId(id) }, visible ? { $unset: { hide_presence: '' } } : { $set: { hide_presence: true } });
+      if (visible) presence.hidden.delete(id); else presence.hidden.add(id);
+      await realtime.announcePresence?.(id, { always: true });
+      res.json({ success: true, visible });
+    } catch (e) {
+      res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
+    }
+  });
+
   // ===== ยืนยันอีเมล =====
   router.post('/account/verify-email/send', requireLogin, limits.forgot, async (req, res) => {
     try {
@@ -234,6 +249,8 @@ module.exports = function accountRouter({
       const deleted = await deleteUserData({ db, ObjectId }, user);
       const id = user._id.toString();
       moderation.banned.delete(id);
+      presence.hidden.delete(id);
+      liveStats.changed();
       io.in('user:' + id).disconnectSockets(true);
       await endSessions(id); // ทุกเครื่อง รวมเครื่องนี้
       req.session.destroy(() => {

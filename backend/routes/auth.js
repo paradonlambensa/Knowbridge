@@ -5,7 +5,7 @@ const { validateAccount } = require('../lib/accountRules');
 const { PRIVACY_VERSION } = require('../lib/accountData');
 const { emailFeaturesEnabled } = require('../lib/mailer');
 
-module.exports = function authRouter({ db, moderation, limits, CI, emailVerification }) {
+module.exports = function authRouter({ db, moderation, limits, CI, emailVerification, liveStats }) {
   const router = express.Router();
 
   function startSession(req, user) {
@@ -33,6 +33,7 @@ module.exports = function authRouter({ db, moderation, limits, CI, emailVerifica
       const user = { username, email, password: hashed, bio: '', created_at: now, privacy_version: PRIVACY_VERSION, privacy_accepted_at: now };
       const result = await db.users.insertOne(user);
       startSession(req, { ...user, _id: result.insertedId });
+      liveStats.changed();
       // ส่งลิงก์ยืนยันอีเมล (ส่งไม่สำเร็จก็ยังสมัครได้ ขอลิงก์ใหม่ได้ในโปรไฟล์)
       const verifyEmailSent = await emailVerification.send(req, { ...user, _id: result.insertedId }).catch(() => false);
       res.json({ success: true, verify_email_sent: verifyEmailSent, verify_email_failed: emailFeaturesEnabled() && !verifyEmailSent });

@@ -9,6 +9,8 @@ const createModeration = require('./lib/moderation');
 const createNotifier = require('./lib/notifier');
 const createExchangeHelpers = require('./lib/exchangeHelpers');
 const createEmailVerification = require('./lib/emailVerification');
+const createPresence = require('./lib/presence');
+const createLiveStats = require('./lib/liveStats');
 const setupSocket = require('./lib/socket');
 const limits = require('./lib/limits');
 // API แยกตามเรื่อง — แต่ละไฟล์รับของที่ต้องใช้ผ่าน routeDeps ด้านล่าง
@@ -24,7 +26,8 @@ const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
 const SESSION_TTL = 24 * 60 * 60; // วินาที
 const moderation = createModeration({ db, ObjectId });
-ready.then(() => moderation.loadBanned());
+const presence = createPresence();
+ready.then(() => Promise.all([moderation.loadBanned(), presence.loadHidden(db)]));
 if ((process.env.RENDER || process.env.NODE_ENV === 'production') && !process.env.SESSION_SECRET) {
   console.warn('⚠️ ยังไม่ได้ตั้ง SESSION_SECRET — ค่าเริ่มต้นอยู่ในโค้ดสาธารณะ ใครก็ปลอม session ได้');
 }
@@ -119,9 +122,12 @@ function isValidId(id) {
 const notify = createNotifier({ db, io, ObjectId });
 const helpers = createExchangeHelpers({ db, ObjectId, isValidId });
 const emailVerification = createEmailVerification({ db });
+const liveStats = createLiveStats({ db, io, presence, ACTIVE_STATUSES: helpers.ACTIVE_STATUSES });
+const realtime = {}; // lib/socket.js ใส่ announcePresence ให้ — route เรียกได้ตอนมี request
 
 const routeDeps = {
-  db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS, emailVerification, ...helpers
+  db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS,
+  emailVerification, presence, liveStats, realtime, ...helpers
 };
 for (const router of ROUTERS) app.use('/api', router(routeDeps));
 setupSocket(routeDeps);

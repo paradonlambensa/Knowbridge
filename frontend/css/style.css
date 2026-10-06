@@ -564,6 +564,35 @@ textarea.input { resize: vertical; min-height: 84px; }
 .delete-list { margin: 0 0 0.75rem 1.1rem; font-size: 0.88rem; color: var(--text-muted); }
 .delete-list li { margin-bottom: 0.2rem; }
 
+/* ===== เรียลไทม์: ออนไลน์ / กำลังพิมพ์ / อ่านแล้ว / ตัวเลขสด ===== */
+.presence-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.presence-dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--success); border: 2px solid var(--card); transform: scale(0); transition: transform 0.2s ease-out; }
+.presence-dot.on { transform: scale(1); }
+.online-text { color: var(--success); font-weight: 600; }
+.typing { display: flex; align-items: center; gap: 0.45rem; padding: 0 1.25rem 0.4rem; font-size: 0.8rem; color: var(--text-light); }
+.typing-dots { display: inline-flex; gap: 3px; padding: 0.35rem 0.55rem; border-radius: 999px; background: var(--surface); }
+.typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); animation: typing-dot 1.2s infinite ease-in-out; }
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+.read-receipt { font-size: 0.7rem; color: var(--text-faint); margin: 0.15rem 0.3rem 0; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--success); position: relative; flex-shrink: 0; }
+.live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--success); animation: live-ping 1.8s infinite ease-out; }
+@keyframes live-ping { from { transform: scale(1); opacity: 0.6; } to { transform: scale(2.6); opacity: 0; } }
+.live-badge { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.4rem; padding: 0.15rem 0.55rem; border-radius: 999px;
+  background: var(--success-pale); color: var(--success); font-size: 0.72rem; font-weight: 700; vertical-align: middle; letter-spacing: 0.02em; }
+.live-badge[hidden], .live-pill[hidden] { display: none; }
+.live-pill { display: flex; align-items: center; justify-content: center; gap: 0.45rem; margin: 0.9rem auto 0; font-size: 0.85rem; color: var(--text-light); }
+.live-pill b { color: var(--success); font-variant-numeric: tabular-nums; }
+.stats b.bump { animation: bump 0.7s ease-out; }
+@keyframes bump { 0% { color: var(--success); transform: scale(1.18); } 100% { color: var(--navy); transform: scale(1); } }
+.post-actions .n { display: inline-block; }
+.post-actions .n.flash { animation: count-flash 0.6s ease-out; }
+@keyframes count-flash { 0% { transform: translateY(-3px); color: var(--link); } 100% { transform: none; } }
+.post.removing { opacity: 0; transform: translateX(-8px); transition: opacity 0.3s, transform 0.3s; }
+.comment.fresh { animation: highlight 1.6s ease-out; border-radius: var(--radius-sm); }
+
 /* ===== การ์ดโปรไฟล์ (บริการ PHP) ===== */
 .card-row { font-size: 0.88rem; margin: 0.25rem 0 0.9rem; }
 .card-row a { font-weight: 600; }

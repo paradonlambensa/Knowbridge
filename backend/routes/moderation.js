@@ -141,9 +141,15 @@ module.exports = function moderationRouter({ db, ObjectId, io, requireLogin, req
         if (type === 'post') {
           await db.posts.deleteOne({ _id: targetId });
           await db.comments.deleteMany({ post_id: targetId });
+          io.emit('feed:delete', { post_id: target_id });
         } else if (type === 'comment') {
           const comment = await db.comments.findOneAndDelete({ _id: targetId });
-          if (comment) await db.posts.updateOne({ _id: comment.post_id }, { $inc: { comment_count: -1 } });
+          if (comment) {
+            const post = await db.posts.findOneAndUpdate(
+              { _id: comment.post_id }, { $inc: { comment_count: -1 } }, { returnDocument: 'after', projection: { comment_count: 1 } }
+            );
+            if (post) io.emit('feed:counts', { post_id: comment.post_id.toString(), comment_count: post.comment_count });
+          }
         } else {
           return res.status(400).json({ success: false, error: 'ผู้ใช้ใช้ปุ่มระงับบัญชีแทน' });
         }
