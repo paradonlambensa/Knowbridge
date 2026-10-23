@@ -1,0 +1,2 @@
+# npm run demo:add -- --db=knowbridge
+# npm run demo:remove -- --db=knowbridge
