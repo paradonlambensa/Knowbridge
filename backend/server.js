@@ -255,19 +255,16 @@ app.use((err, req, res, next) => {
       status,
     });
   if (res.headersSent) return next(err);
-  res
-    .status(status)
-    .json({
-      success: false,
-      error: status >= 500 ? "เกิดข้อผิดพลาด" : "ข้อมูลที่ส่งมาไม่ถูกต้อง",
-    });
+  res.status(status).json({
+    success: false,
+    error: status >= 500 ? "เกิดข้อผิดพลาด" : "ข้อมูลที่ส่งมาไม่ถูกต้อง",
+  });
 });
 setupSocket(routeDeps);
 
 httpServer.listen(PORT, () => {
   console.log(`🌉 KnowBridge running at http://localhost:${PORT}`);
 });
-const path = require("path");
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "../frontend/uploads")),
