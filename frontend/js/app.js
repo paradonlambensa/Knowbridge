@@ -1261,7 +1261,7 @@ async function showUserProfile(userId) {
     </div>`;
   body.innerHTML = `
     <div class="profile-head">
-      ${avatar(user.username, "lg")}
+      ${avatar(user.username, "lg", "", user.avatar_url)}
       <div>
         <h2>${esc(user.username)} ${user.email_verified ? '<span class="verified-badge" title="ยืนยันอีเมลแล้ว">✓ ยืนยันอีเมล</span>' : ""} ${user.banned ? '<span class="banned-badge">ถูกระงับ</span>' : ""}</h2>
         <p class="rating">${ratingHtml(rating.avg, rating.count)}</p>

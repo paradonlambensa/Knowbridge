@@ -1,25 +1,47 @@
-const express = require('express');
-const fs = require('fs/promises');
-const path = require('path');
-const session = require('express-session');
-const helmet = require('helmet');
-const { MongoStore } = require('connect-mongo');
-const { db, ObjectId, client, dbName, ready, CI, DEMO_EMAILS } = require('./database');
-const createModeration = require('./lib/moderation');
-const createNotifier = require('./lib/notifier');
-const createExchangeHelpers = require('./lib/exchangeHelpers');
-const createEmailVerification = require('./lib/emailVerification');
-const createPresence = require('./lib/presence');
-const createLiveStats = require('./lib/liveStats');
-const createErrorLog = require('./lib/errorLog');
-const setupSocket = require('./lib/socket');
-const limits = require('./lib/limits');
+const express = require("express");
+const fs = require("fs/promises");
+const path = require("path");
+const session = require("express-session");
+const helmet = require("helmet");
+const { MongoStore } = require("connect-mongo");
+const {
+  db,
+  ObjectId,
+  client,
+  dbName,
+  ready,
+  CI,
+  DEMO_EMAILS,
+} = require("./database");
+const createModeration = require("./lib/moderation");
+const createNotifier = require("./lib/notifier");
+const createExchangeHelpers = require("./lib/exchangeHelpers");
+const createEmailVerification = require("./lib/emailVerification");
+const createPresence = require("./lib/presence");
+const createLiveStats = require("./lib/liveStats");
+const createErrorLog = require("./lib/errorLog");
+const setupSocket = require("./lib/socket");
+const limits = require("./lib/limits");
 // API แยกตามเรื่อง — แต่ละไฟล์รับของที่ต้องใช้ผ่าน routeDeps ด้านล่าง
-const ROUTERS = ['auth', 'skills', 'skillRequests', 'profile', 'exchange', 'notifications', 'posts', 'moderation', 'account', 'stats', 'errors']
-  .map(name => require('./routes/' + name));
-const { createServer } = require('http');
-const { Server } = require('socket.io');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
+const ROUTERS = [
+  "auth",
+  "skills",
+  "skillRequests",
+  "profile",
+  "exchange",
+  "notifications",
+  "posts",
+  "moderation",
+  "account",
+  "stats",
+  "errors",
+].map((name) => require("./routes/" + name));
+const { createServer } = require("http");
+const { Server } = require("socket.io");
+require("dotenv").config({
+  path: path.join(__dirname, "..", ".env"),
+  quiet: true,
+});
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,61 +51,88 @@ const SESSION_TTL = 24 * 60 * 60; // วินาที
 // บันทึกข้อผิดพลาด (lib/errorLog.js): console.error ทุกที่ + error ที่ไม่มีใครจับ + คำตอบ 5xx
 const errorLog = createErrorLog({ db });
 errorLog.captureConsole();
-process.on('unhandledRejection', (reason) => {
-  console.error('unhandledRejection:', reason instanceof Error ? reason : new Error(String(reason)));
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    "unhandledRejection:",
+    reason instanceof Error ? reason : new Error(String(reason)),
+  );
 });
-process.on('uncaughtException', (err) => {
+process.on("uncaughtException", (err) => {
   // สถานะของโปรแกรมไม่น่าไว้ใจแล้ว — บันทึกไว้แล้วออก ให้ Render เปิดใหม่
-  console.log('uncaughtException:', err);
-  const saved = errorLog.record({ kind: 'uncaughtException', message: err.message, stack: err.stack });
-  Promise.race([saved, new Promise(r => setTimeout(r, 2000))]).finally(() => process.exit(1));
+  console.log("uncaughtException:", err);
+  const saved = errorLog.record({
+    kind: "uncaughtException",
+    message: err.message,
+    stack: err.stack,
+  });
+  Promise.race([saved, new Promise((r) => setTimeout(r, 2000))]).finally(() =>
+    process.exit(1),
+  );
 });
 
 const moderation = createModeration({ db, ObjectId });
 const presence = createPresence();
-ready.then(() => Promise.all([moderation.loadBanned(), presence.loadHidden(db)]));
-if ((process.env.RENDER || process.env.NODE_ENV === 'production') && !process.env.SESSION_SECRET) {
-  console.warn('⚠️ ยังไม่ได้ตั้ง SESSION_SECRET — ค่าเริ่มต้นอยู่ในโค้ดสาธารณะ ใครก็ปลอม session ได้');
+ready.then(() =>
+  Promise.all([moderation.loadBanned(), presence.loadHidden(db)]),
+);
+if (
+  (process.env.RENDER || process.env.NODE_ENV === "production") &&
+  !process.env.SESSION_SECRET
+) {
+  console.warn(
+    "⚠️ ยังไม่ได้ตั้ง SESSION_SECRET — ค่าเริ่มต้นอยู่ในโค้ดสาธารณะ ใครก็ปลอม session ได้",
+  );
 }
 
 // Render/โฮสต์ส่วนใหญ่อยู่หลัง proxy ที่ทำ HTTPS ให้ — ต้องเชื่อ proxy ถึงจะตั้งคุกกี้ secure ได้
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 // security headers (helmet): ห้ามเว็บอื่นเอาไปฝังใน iframe, จำกัดที่มาของสคริปต์/สไตล์/ฟอนต์ ฯลฯ
 // หน้าเว็บยังใช้ onclick="..." และสคริปต์สั้น ๆ ใน <head> เลยต้องอนุญาต inline script
-const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RENDER;
+const isProduction =
+  process.env.NODE_ENV === "production" || !!process.env.RENDER;
 // การ์ดโปรไฟล์ = บริการ PHP แยก (card-service/) — ไม่ตั้ง CARD_SERVICE_URL = ซ่อนปุ่มการ์ด
 const CARD_ORIGIN = (() => {
   try {
     const url = new URL(process.env.CARD_SERVICE_URL);
-    return ['http:', 'https:'].includes(url.protocol) ? url.origin : '';
+    return ["http:", "https:"].includes(url.protocol) ? url.origin : "";
   } catch (e) {
-    return '';
+    return "";
   }
 })();
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-      connectSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', ...(CARD_ORIGIN ? [CARD_ORIGIN] : [])],
-      frameAncestors: ["'none'"],
-      // ตอนรันในเครื่องเป็น http — ไม่บังคับเปลี่ยนเป็น https
-      upgradeInsecureRequests: isProduction ? [] : null
-    }
-  }
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        connectSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", ...(CARD_ORIGIN ? [CARD_ORIGIN] : [])],
+        frameAncestors: ["'none'"],
+        // ตอนรันในเครื่องเป็น http — ไม่บังคับเปลี่ยนเป็น https
+        upgradeInsecureRequests: isProduction ? [] : null,
+      },
+    },
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // คำขอไหนตอบ 5xx ก็บันทึกไว้ (รวมกลุ่มตาม route เช่น /api/posts/:id/like)
-const routeOf = (req) => (req.route ? req.baseUrl + req.route.path : req.originalUrl.split('?')[0].replace(/[0-9a-f]{24}/gi, ':id'));
+const routeOf = (req) =>
+  req.route
+    ? req.baseUrl + req.route.path
+    : req.originalUrl.split("?")[0].replace(/[0-9a-f]{24}/gi, ":id");
 app.use((req, res, next) => {
-  res.on('finish', () => {
+  res.on("finish", () => {
     if (res.statusCode >= 500) {
-      errorLog.record({ kind: 'http', message: `HTTP ${res.statusCode} ${req.method} ${routeOf(req)}`, path: routeOf(req), status: res.statusCode });
+      errorLog.record({
+        kind: "http",
+        message: `HTTP ${res.statusCode} ${req.method} ${routeOf(req)}`,
+        path: routeOf(req),
+        status: res.statusCode,
+      });
     }
   });
   next();
@@ -91,55 +140,73 @@ app.use((req, res, next) => {
 
 // หน้าแรก: ใส่ URL เต็มของเว็บลงใน meta การ์ดแชร์ลิงก์ (LINE/Facebook ต้องการลิงก์รูปแบบเต็ม)
 // ใช้ได้ทุกโดเมนโดยไม่ต้องแก้ไฟล์ — Host แปลก ๆ ไม่ถูกใส่ลงหน้าเว็บ
-const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
-const INDEX_PATH = path.join(FRONTEND_DIR, 'index.html');
-app.get(['/', '/index.html'], async (req, res, next) => {
+const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
+const INDEX_PATH = path.join(FRONTEND_DIR, "index.html");
+app.get(["/", "/index.html"], async (req, res, next) => {
   try {
-    const host = req.get('host') || '';
-    const origin = process.env.APP_URL
-      || (/^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${req.protocol}://${host}` : '');
-    const html = await fs.readFile(INDEX_PATH, 'utf8');
-    res.type('html').send(html.replaceAll('__ORIGIN__', origin.replace(/\/$/, '')).replaceAll('__CARD_URL__', CARD_ORIGIN));
+    const host = req.get("host") || "";
+    const origin =
+      process.env.APP_URL ||
+      (/^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${req.protocol}://${host}` : "");
+    const html = await fs.readFile(INDEX_PATH, "utf8");
+    res
+      .type("html")
+      .send(
+        html
+          .replaceAll("__ORIGIN__", origin.replace(/\/$/, ""))
+          .replaceAll("__CARD_URL__", CARD_ORIGIN),
+      );
   } catch (e) {
     next(e);
   }
 });
 app.use(express.static(FRONTEND_DIR, { index: false }));
 const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || 'knowbridge-secret-2024',
+  secret: process.env.SESSION_SECRET || "knowbridge-secret-2024",
   resave: false,
   saveUninitialized: false,
   // เก็บ session ใน MongoDB ไม่หลุด login ตอน server restart หรือ Render free หลับ
   store: MongoStore.create({
     clientPromise: ready.then(() => client),
     dbName,
-    collectionName: 'sessions',
+    collectionName: "sessions",
     ttl: SESSION_TTL,
-    touchAfter: 60 * 60
+    touchAfter: 60 * 60,
   }),
-  cookie: { maxAge: SESSION_TTL * 1000, httpOnly: true, sameSite: 'lax', secure: 'auto' }
+  cookie: {
+    maxAge: SESSION_TTL * 1000,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: "auto",
+  },
 });
 app.use(sessionMiddleware);
 // ให้ socket.io ใช้ session เดียวกับ express เพื่อรู้ว่าใครเป็นคนส่งข้อความ
 io.engine.use(sessionMiddleware);
-app.use('/api', limits.api);
+app.use("/api", limits.api);
 
 function requireLogin(req, res, next) {
-  if (!req.session.userId) return res.status(401).json({ error: 'กรุณา Login ก่อน' });
+  if (!req.session.userId)
+    return res.status(401).json({ error: "กรุณา Login ก่อน" });
   // ถูกระงับระหว่างที่ยัง login อยู่ → ตัด session ทิ้งทันที
   if (moderation.banned.has(req.session.userId)) {
-    return req.session.destroy(() => res.status(401).json({ error: 'บัญชีนี้ถูกระงับการใช้งาน' }));
+    return req.session.destroy(() =>
+      res.status(401).json({ error: "บัญชีนี้ถูกระงับการใช้งาน" }),
+    );
   }
   next();
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.session.isAdmin) return res.status(403).json({ success: false, error: 'สำหรับแอดมินเท่านั้น' });
+  if (!req.session.isAdmin)
+    return res
+      .status(403)
+      .json({ success: false, error: "สำหรับแอดมินเท่านั้น" });
   next();
 }
 
 function isValidId(id) {
-  return typeof id === 'string' && ObjectId.isValid(id);
+  return typeof id === "string" && ObjectId.isValid(id);
 }
 
 // ทุก socket ของผู้ใช้ join ห้อง user:<id> ไว้ ส่งแจ้งเตือนถึงทุกแท็บที่เปิดอยู่ได้ในครั้งเดียว
@@ -147,24 +214,61 @@ function isValidId(id) {
 const notify = createNotifier({ db, io, ObjectId });
 const helpers = createExchangeHelpers({ db, ObjectId, isValidId });
 const emailVerification = createEmailVerification({ db });
-const liveStats = createLiveStats({ db, io, presence, ACTIVE_STATUSES: helpers.ACTIVE_STATUSES });
+const liveStats = createLiveStats({
+  db,
+  io,
+  presence,
+  ACTIVE_STATUSES: helpers.ACTIVE_STATUSES,
+});
 const realtime = {}; // lib/socket.js ใส่ announcePresence ให้ — route เรียกได้ตอนมี request
 
 const routeDeps = {
-  db, ObjectId, io, notify, requireLogin, requireAdmin, isValidId, moderation, limits, CI, DEMO_EMAILS,
-  emailVerification, presence, liveStats, realtime, errorLog, ...helpers
+  db,
+  ObjectId,
+  io,
+  notify,
+  requireLogin,
+  requireAdmin,
+  isValidId,
+  moderation,
+  limits,
+  CI,
+  DEMO_EMAILS,
+  emailVerification,
+  presence,
+  liveStats,
+  realtime,
+  errorLog,
+  ...helpers,
 };
-for (const router of ROUTERS) app.use('/api', router(routeDeps));
+for (const router of ROUTERS) app.use("/api", router(routeDeps));
 
 // error ที่หลุดออกมาจาก route (หรือ JSON ที่ส่งมาผิดรูปแบบ) → ตอบเป็น JSON ไม่ใช่หน้า HTML ของ Express
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
-  if (status >= 500) errorLog.record({ kind: 'exception', message: err.message, stack: err.stack, path: routeOf(req), status });
+  if (status >= 500)
+    errorLog.record({
+      kind: "exception",
+      message: err.message,
+      stack: err.stack,
+      path: routeOf(req),
+      status,
+    });
   if (res.headersSent) return next(err);
-  res.status(status).json({ success: false, error: status >= 500 ? 'เกิดข้อผิดพลาด' : 'ข้อมูลที่ส่งมาไม่ถูกต้อง' });
+  res
+    .status(status)
+    .json({
+      success: false,
+      error: status >= 500 ? "เกิดข้อผิดพลาด" : "ข้อมูลที่ส่งมาไม่ถูกต้อง",
+    });
 });
 setupSocket(routeDeps);
 
 httpServer.listen(PORT, () => {
   console.log(`🌉 KnowBridge running at http://localhost:${PORT}`);
 });
+const path = require("path");
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "../frontend/uploads")),
+);
