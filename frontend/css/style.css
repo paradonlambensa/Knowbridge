@@ -2669,6 +2669,11 @@ body:has(.privacy-bar:not([hidden])) #toast-container {
   width: 96px;
   height: 96px;
 }
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .avatar.lg {
   width: 96px;
@@ -2737,4 +2742,24 @@ body:has(.privacy-bar:not([hidden])) #toast-container {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
+}
+.upload-text-btn {
+  font-size: 0.85rem; /* ปรับให้เล็กลง */
+  color: #3b82f6; /* สีฟ้า */
+  cursor: pointer;
+  line-height: 1.4;
+  display: block; /* บังคับให้เป็นบล็อกเพื่อจัดกึ่งกลาง */
+  text-align: center; /* จัดตัวหนังสือให้อยู่ตรงกลาง */
+  margin-top: 8px; /* ระยะห่างจากวงกลมด้านบน */
+  width: 100%;
+}
+
+.upload-text-btn:hover {
+  text-decoration: underline;
+}
+
+.upload-text-btn small {
+  color: #94a3b8; /* สีเทาสำหรับคำว่า แก้ไขรูปภาพ */
+  font-size: 0.75rem; /* เล็กลงไปอีก */
+  display: block; /* ให้อยู่บรรทัดใหม่เสมอ */
 }
