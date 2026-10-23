@@ -1,3 +1,12 @@
+// ===== ดักจับ fetch อัตโนมัติ เพื่อส่ง Cookie ข้ามโดเมน (Credentials) =====
+const originalFetch = window.fetch;
+window.fetch = function (url, options = {}) {
+  if (typeof url === "string" && url.includes("/api")) {
+    options.credentials = "include";
+  }
+  return originalFetch(url, options);
+};
+
 // ===== error ฝั่งหน้าเว็บ → ส่งให้แอดมินดูในเมนูแอดมิน (ไม่เกิน 5 ครั้งต่อการเปิดหน้า) =====
 let clientErrorsSent = 0;
 function reportClientError(message, stack, source, line, col) {

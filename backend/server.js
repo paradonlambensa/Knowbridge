@@ -1,4 +1,5 @@
 require("dotenv").config();
+app.set("trust proxy", 1);
 const express = require("express");
 const fs = require("fs/promises");
 const path = require("path");
@@ -177,8 +178,9 @@ const sessionMiddleware = session({
   cookie: {
     maxAge: SESSION_TTL * 1000,
     httpOnly: true,
-    sameSite: "lax",
-    secure: "auto",
+    // *** สำคัญ: ต้องปรับแก้ส่วนนี้หากต้องการโฮสต์แยกโดเมน ***
+    // sameSite: "lax", // เปลี่ยนเป็น sameSite: process.env.NODE_ENV === "production" ? "none" : "lax"
+    // secure: "auto",  // เปลี่ยนเป็น secure: process.env.NODE_ENV === "production"
   },
 });
 app.use(sessionMiddleware);
@@ -269,4 +271,16 @@ httpServer.listen(PORT, () => {
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "../frontend/uploads")),
+);
+const cors = require("cors");
+// ... (บรรทัดอื่นๆ)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// เพิ่มการตั้งค่า CORS
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "https://your-frontend-domain.com", // ระบุโดเมนของคุณ
+    credentials: true, // อนุญาตให้รับส่ง Session Cookie
+  }),
 );
