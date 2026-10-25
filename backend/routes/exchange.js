@@ -52,13 +52,14 @@ module.exports = function exchangeRouter({
       const unread = await getUnreadCounts([...received, ...sent].filter(r => ACTIVE_STATUSES.includes(r.status)), me);
 
       const enriched = async (list, idField) => Promise.all(list.map(async ({ last_read, completed_by = [], ...r }) => {
-        const user = await db.users.findOne({ _id: r[idField] });
+        const user = await db.users.findOne({ _id: r[idField] }, { projection: { username: 1, avatar_url: 1 } });
         const otherId = r[idField].toString();
         const active = ACTIVE_STATUSES.includes(r.status);
         return {
           ...r,
           other_user_id: r[idField],
           other_username: user?.username || 'ไม่ทราบชื่อ',
+          other_avatar_url: user?.avatar_url || null,
           // เห็นได้เฉพาะคู่ที่ตอบรับกันแล้ว: อีกฝ่ายอ่านแชทถึงตรงไหน และออนไลน์อยู่ไหม
           other_last_read: active ? last_read?.[otherId] || null : null,
           other_presence: active ? presence.statusOf(otherId) : null,

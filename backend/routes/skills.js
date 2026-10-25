@@ -34,7 +34,7 @@ module.exports = function skillsRouter({ db, ObjectId, requireLogin, moderation,
       }
       const users = await db.users.find(
         { _id: { $in: [...skillsByUser.keys()].map(id => new ObjectId(id)) } },
-        { projection: { username: 1, bio: 1 } }
+        { projection: { username: 1, bio: 1, avatar_url: 1 } }
       ).toArray();
       const ratings = await getRatings(users.map(u => u._id));
 
@@ -44,6 +44,7 @@ module.exports = function skillsRouter({ db, ObjectId, requireLogin, moderation,
         return {
           id: u._id,
           username: u.username,
+          avatar_url: u.avatar_url || null,
           bio: u.bio,
           skills: sk.map(s => ({ name: s.name, category: s.category })),
           skill_name: sk[0].name,       // เก็บไว้ให้โค้ดเดิมที่อ่านทักษะเดียว
@@ -91,7 +92,7 @@ module.exports = function skillsRouter({ db, ObjectId, requireLogin, moderation,
 
       const userIds = [...byUser.keys()].map(id => new ObjectId(id));
       const [users, skills, ratings, requests] = await Promise.all([
-        db.users.find({ _id: { $in: userIds } }, { projection: { username: 1, bio: 1 } }).toArray(),
+        db.users.find({ _id: { $in: userIds } }, { projection: { username: 1, bio: 1, avatar_url: 1 } }).toArray(),
         db.skills.find({ _id: { $in: candidates.map(c => c.skill_id) } }).toArray(),
         getRatings(userIds),
         db.exchange_requests.find({
@@ -122,6 +123,7 @@ module.exports = function skillsRouter({ db, ObjectId, requireLogin, moderation,
         return {
           id: u._id,
           username: u.username,
+          avatar_url: u.avatar_url || null,
           bio: u.bio,
           perfect,
           can_teach_me: m.canTeachMe.map(skillInfo),

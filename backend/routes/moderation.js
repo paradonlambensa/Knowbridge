@@ -73,8 +73,8 @@ module.exports = function moderationRouter({ db, ObjectId, io, requireLogin, req
   router.get('/blocks', requireLogin, async (req, res) => {
     try {
       const rows = await db.blocks.find({ blocker_id: new ObjectId(req.session.userId) }).sort({ _id: -1 }).toArray();
-      const users = await db.users.find({ _id: { $in: rows.map(r => r.blocked_id) } }, { projection: { username: 1 } }).toArray();
-      res.json(users.map(u => ({ id: u._id, username: u.username })));
+      const users = await db.users.find({ _id: { $in: rows.map(r => r.blocked_id) } }, { projection: { username: 1, avatar_url: 1 } }).toArray();
+      res.json(users.map(u => ({ id: u._id, username: u.username, avatar_url: u.avatar_url || null })));
     } catch (e) {
       res.json([]);
     }

@@ -448,6 +448,31 @@ async function run() {
   check('/api/stats มีจำนวนคนออนไลน์', typeof (await json(api(null, '/api/stats'))).online === 'number');
   fA.ws.close(); fB.ws.close();
 
+  // --- รูปโปรไฟล์: คนอื่นเห็นทุกที่ที่มีชื่อเรา ---
+  // อัปโหลดจริงต้องใช้ Cloudinary — ใส่ URL ลงฐานข้อมูลทดสอบตรง ๆ แทน (ข้ามถ้าทดสอบกับ server ภายนอก)
+  if (ownServer) {
+    process.env.MONGODB_DB = TEST_DB;
+    const { db: testDb, ready, ObjectId } = require('../backend/database');
+    await ready;
+    const pic = 'https://res.cloudinary.com/demo/image/upload/avatars/bob.png';
+    await testDb.users.updateOne({ _id: new ObjectId(B.id) }, { $set: { avatar_url: pic } });
+    const bPost = (await json(api(A, `/api/posts?author=${B.id}`))).posts[0];
+    check('ฟีด: โพสต์ของ B มีรูปโปรไฟล์ของ B', bPost?.author_avatar === pic, JSON.stringify(bPost?.author_avatar));
+    j = await json(post(B, `/api/posts/${bPost._id}/comments`, { text: 'มีรูปแล้ว' }));
+    const bComment = (await json(api(A, `/api/posts/${bPost._id}/comments`))).find(c => c.author_id === B.id);
+    check('ความคิดเห็น: มีรูปผู้เขียน (ทั้งตอนเพิ่มและตอนโหลด)', j.comment?.author_avatar === pic && bComment?.author_avatar === pic);
+    const bSearch = (await json(api(A, '/api/search?skill=English'))).find(u => u.id === B.id);
+    check('ผลค้นหามีรูปโปรไฟล์', bSearch?.avatar_url === pic);
+    const bMatch = (await json(api(A, '/api/matches'))).matches.find(x => x.id === B.id);
+    check('คู่แนะนำมีรูปโปรไฟล์', bMatch?.avatar_url === pic);
+    const dashA = await json(api(A, '/api/dashboard'));
+    const withB = [...dashA.received, ...dashA.sent].filter(r => r.other_user_id === B.id);
+    check('คำขอแลกเปลี่ยน / แชทมีรูปของอีกฝ่าย', withB.length > 0 && withB.every(r => r.other_avatar_url === pic));
+    const fromB = (await json(api(A, '/api/notifications/list?limit=50'))).items.filter(n => n.from === B.username);
+    check('กระดิ่งแจ้งเตือนมีรูปของคนที่ทำให้เกิดแจ้งเตือน', fromB.length > 0 && fromB.every(n => n.from_avatar === pic), String(fromB.length));
+    await testDb.users.updateOne({ _id: new ObjectId(B.id) }, { $unset: { avatar_url: '' } });
+  }
+
   // --- รายงาน / บล็อก / แอดมิน ---
   const D = await register('Dan_' + tag);
   const admin = await adminAccount();

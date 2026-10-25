@@ -418,7 +418,7 @@ async function login() {
   if (data.success) {
     closeModal();
     reconnectSocket();
-    showLoggedIn(data.username);
+    showLoggedIn(data.username, data.avatar_url);
     await loadProfile();
     searchSkills();
   } else {
@@ -470,13 +470,14 @@ async function register() {
   }
 }
 
-function showLoggedIn(username) {
+function showLoggedIn(username, avatarUrl = null) {
   document.getElementById("btn-login-nav").style.display = "none";
   document.getElementById("btn-logout").style.display = "";
   document.getElementById("nav-dashboard").style.display = "";
   document.getElementById("nav-profile").style.display = "";
   document.getElementById("bell-wrap").hidden = false;
   currentUsername = username;
+  currentAvatarUrl = avatarUrl;
   updateHero(username);
   loadMatches();
   ensureSocket();
@@ -788,7 +789,7 @@ function renderBell() {
         .map(
           (n, i) => `
         <button class="bell-item ${n.read ? "" : "unread"}" data-i="${i}">
-          ${avatar(n.from)}
+          ${avatar(n.from, "", "", n.from_avatar)}
           <span style="flex:1;min-width:0">
             <span class="bell-text">${notificationHtml(n)}</span>
             <span class="bell-time">${timeAgo(n.created_at)}</span>
@@ -996,9 +997,9 @@ function presenceText(p) {
 }
 
 // วงกลมโปรไฟล์ + จุดเขียวเมื่อออนไลน์ (อัปเดตเองเมื่อสถานะเปลี่ยน)
-function avatarWithPresence(name, userId) {
+function avatarWithPresence(name, userId, avatarUrl = "") {
   const on = presenceOf[userId]?.online ? " on" : "";
-  return `<span class="presence-wrap">${avatar(name)}<i class="presence-dot${on}" data-presence="${esc(userId)}" aria-hidden="true"></i></span>`;
+  return `<span class="presence-wrap">${avatar(name, "", "", avatarUrl)}<i class="presence-dot${on}" data-presence="${esc(userId)}" aria-hidden="true"></i></span>`;
 }
 
 function updatePresence(p) {
@@ -1154,6 +1155,7 @@ async function loadProfile() {
   const data = await res.json();
   if (data.user) {
     currentUserId = data.user._id;
+    currentAvatarUrl = data.user.avatar_url || null;
     setAdmin(data.is_admin);
     document.getElementById("profile-username").textContent =
       data.user.username;
@@ -1224,6 +1226,7 @@ async function saveProfile() {
   if (data.success) {
     closeProfile();
     showToast("✅ บันทึกโปรไฟล์แล้ว");
+    if (selectedAvatarFile) refreshMyAvatar();
     updateHero(document.getElementById("profile-username").textContent);
     searchSkills();
     loadMatches();
@@ -1231,6 +1234,15 @@ async function saveProfile() {
     msg.textContent = data.error || "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง";
     msg.className = "form-msg error-msg";
   }
+}
+
+// เปลี่ยนรูปโปรไฟล์แล้ว → อัปเดตกล่องเขียนโพสต์และโพสต์ของเราในฟีดทันที
+async function refreshMyAvatar() {
+  const res = await fetch("/api/profile");
+  if (!res.ok) return;
+  currentAvatarUrl = (await res.json()).user?.avatar_url || null;
+  renderComposer();
+  if (feedLoaded) loadFeed(true);
 }
 
 // ===== Public Profile =====
@@ -1352,7 +1364,7 @@ async function searchSkills(scrollToResults = false, showSkeleton = false) {
         (user) => `
       <article class="person-card">
         <div class="person" onclick="showUserProfile('${esc(user.id)}')" title="ดูโปรไฟล์และรีวิว">
-          ${avatar(user.username)}
+          ${avatar(user.username, "", "", user.avatar_url)}
           <div>
             <h3>${esc(user.username)}</h3>
             <p class="rating">${ratingHtml(user.avg_rating, user.review_count)}</p>
@@ -1426,7 +1438,7 @@ async function checkSession() {
     if (data.user) {
       currentUserId = data.user._id;
       setAdmin(data.is_admin);
-      showLoggedIn(data.user.username);
+      showLoggedIn(data.user.username, data.user.avatar_url);
       document.getElementById("profile-username").textContent =
         data.user.username;
       document.getElementById("profile-email").textContent = data.user.email;
@@ -1484,7 +1496,7 @@ function renderRequestCard(r, isReceived) {
     <div class="request">
       <div class="request-top">
         <div class="person" onclick="showUserProfile('${esc(r.other_user_id)}')">
-          ${r.other_presence ? avatarWithPresence(r.other_username, r.other_user_id) : avatar(r.other_username)}
+          ${r.other_presence ? avatarWithPresence(r.other_username, r.other_user_id, r.other_avatar_url) : avatar(r.other_username, "", "", r.other_avatar_url)}
           <div style="min-width:0">
             <h3>${esc(r.other_username)}</h3>
             <p class="request-msg">${esc(r.message || "ไม่มีข้อความ")}</p>
@@ -1651,6 +1663,7 @@ async function deleteRequest(requestId) {
 let currentRequestId = null;
 let currentUserId = null;
 let currentUsername = null;
+let currentAvatarUrl = null;
 let socket = null;
 
 async function openChat(requestId) {
@@ -1668,7 +1681,7 @@ async function openChat(requestId) {
       ? `<p class="chat-sub">📅 นัดครั้งถัดไป ${esc(fmtDateTime(req.schedule.at))}</p>`
       : "";
   document.getElementById("chat-title").innerHTML =
-    `${req ? avatarWithPresence(name, req.other_user_id) : avatar(name)}
+    `${req ? avatarWithPresence(name, req.other_user_id, req.other_avatar_url) : avatar(name)}
     <div style="min-width:0"><h3>${esc(name)}</h3><p class="chat-sub" id="chat-presence" hidden></p>${next}</div>`;
   renderChatPresence();
   hideTyping();
@@ -1943,7 +1956,7 @@ async function loadBlockedList() {
   document.getElementById("blocked-list").innerHTML = users
     .map(
       (u) => `
-    <div class="blocked-row">${avatar(u.username)}<span>${esc(u.username)}</span>
+    <div class="blocked-row">${avatar(u.username, "", "", u.avatar_url)}<span>${esc(u.username)}</span>
       <button class="btn btn-ghost btn-sm" data-unblock="${esc(u.id)}" data-name="${esc(u.username)}">เลิกบล็อก</button>
     </div>`,
     )
@@ -2237,7 +2250,7 @@ function renderMatch(m) {
     <article class="person-card match-card ${m.perfect ? "perfect" : ""}">
       ${m.perfect ? '<span class="match-badge">✨ แลกกันได้พอดี</span>' : ""}
       <div class="person" onclick="showUserProfile('${esc(m.id)}')" title="ดูโปรไฟล์และรีวิว">
-        ${avatar(m.username)}
+        ${avatar(m.username, "", "", m.avatar_url)}
         <div>
           <h3>${esc(m.username)}</h3>
           <p class="rating">${ratingHtml(m.avg_rating, m.review_count)}</p>
@@ -2379,7 +2392,7 @@ function renderPost(p) {
       ];
   return `
     <article class="post" id="post-${esc(p._id)}" data-id="${esc(p._id)}">
-      ${avatar(p.author_name, "", user)}
+      ${avatar(p.author_name, "", user, p.author_avatar)}
       <div class="post-body">
         <div class="post-meta">
           <span class="post-author" ${user}>${esc(p.author_name)}</span>
@@ -2404,7 +2417,7 @@ function renderComment(c) {
   const user = `data-action="profile" data-user="${esc(c.author_id)}"`;
   return `
     <div class="comment" data-comment="${esc(c._id)}">
-      ${avatar(c.author_name, "", user)}
+      ${avatar(c.author_name, "", user, c.author_avatar)}
       <div class="comment-body">
         <div class="post-meta">
           <span class="post-author" ${user}>${esc(c.author_name)}</span>
@@ -2495,7 +2508,7 @@ function renderComposer() {
   }
   el.innerHTML = `
     <form class="composer" id="composer-form">
-      ${avatar(currentUsername)}
+      ${avatar(currentUsername, "", "", currentAvatarUrl)}
       <div class="composer-main">
         <textarea id="composer-text" rows="2" placeholder="แชร์ความรู้ เคล็ดลับ หรือถามคำถาม..." aria-label="เขียนโพสต์"></textarea>
         <div class="composer-foot">

@@ -55,7 +55,7 @@ module.exports = function authRouter({ db, moderation, limits, CI, emailVerifica
         return res.status(401).json({ success: false, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
       if (user.disabled) return res.status(403).json({ success: false, error: 'บัญชีนี้ถูกระงับการใช้งาน' });
       startSession(req, user);
-      res.json({ success: true, username: user.username });
+      res.json({ success: true, username: user.username, avatar_url: user.avatar_url || null });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
     }

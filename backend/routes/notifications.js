@@ -29,7 +29,13 @@ module.exports = function notificationsRouter({ db, ObjectId, requireLogin, isVa
         db.notifications.find({ user_id: me }).sort({ _id: -1 }).limit(limit).toArray(),
         db.notifications.countDocuments({ user_id: me, read: false })
       ]);
-      res.json({ unread, items: items.map(({ user_id, ...n }) => n) });
+      // รูปโปรไฟล์ของคนที่ทำให้เกิดแจ้งเตือน (from เก็บเป็นชื่อผู้ใช้ — เปลี่ยนชื่อแล้วอัปเดตตามใน routes/account.js)
+      const names = [...new Set(items.map(n => n.from).filter(Boolean))];
+      const senders = names.length
+        ? await db.users.find({ username: { $in: names } }, { projection: { username: 1, avatar_url: 1 } }).toArray()
+        : [];
+      const avatarOf = new Map(senders.map(u => [u.username, u.avatar_url || null]));
+      res.json({ unread, items: items.map(({ user_id, ...n }) => ({ ...n, from_avatar: avatarOf.get(n.from) || null })) });
     } catch (e) {
       res.json({ unread: 0, items: [] });
     }

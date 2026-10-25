@@ -33,13 +33,14 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
   async function present(posts, meId) {
     const authors = await db.users.find(
       { _id: { $in: [...new Set(posts.map(p => p.author_id.toString()))].map(id => new ObjectId(id)) } },
-      { projection: { username: 1 } }
+      { projection: { username: 1, avatar_url: 1 } }
     ).toArray();
-    const nameOf = (id) => authors.find(a => a._id.equals(id))?.username || 'ไม่ทราบชื่อ';
+    const authorOf = (id) => authors.find(a => a._id.equals(id));
     return posts.map(p => ({
       _id: p._id,
       author_id: p.author_id,
-      author_name: nameOf(p.author_id),
+      author_name: authorOf(p.author_id)?.username || 'ไม่ทราบชื่อ',
+      author_avatar: authorOf(p.author_id)?.avatar_url || null,
       text: p.text,
       tags: p.tags,
       like_count: p.likes?.length || 0,
@@ -172,12 +173,14 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
         ...visibleTo(req)
       }).sort({ _id: 1 }).toArray();
       const authors = await db.users.find(
-        { _id: { $in: comments.map(c => c.author_id) } }, { projection: { username: 1 } }
+        { _id: { $in: comments.map(c => c.author_id) } }, { projection: { username: 1, avatar_url: 1 } }
       ).toArray();
+      const authorOf = (id) => authors.find(a => a._id.equals(id));
       res.json(comments.map(c => ({
         _id: c._id,
         author_id: c.author_id,
-        author_name: authors.find(a => a._id.equals(c.author_id))?.username || 'ไม่ทราบชื่อ',
+        author_name: authorOf(c.author_id)?.username || 'ไม่ทราบชื่อ',
+        author_avatar: authorOf(c.author_id)?.avatar_url || null,
         text: c.text,
         created_at: c.created_at,
         mine: c.author_id.toString() === req.session.userId,
@@ -211,10 +214,14 @@ module.exports = function postsRouter({ db, ObjectId, io, notify, requireLogin, 
       }
       // คนที่เปิดความคิดเห็นของโพสต์นี้อยู่จะโหลดรายการใหม่เอง (ผ่าน API ที่กรองการบล็อกให้)
       io.emit('feed:counts', { post_id: req.params.id, comment_count: post.comment_count });
+      const me = await db.users.findOne({ _id: comment.author_id }, { projection: { avatar_url: 1 } });
       res.json({
         success: true,
         comment_count: post.comment_count,
-        comment: { _id: insertedId, author_id: comment.author_id, author_name: req.session.username, text, created_at: comment.created_at, mine: true }
+        comment: {
+          _id: insertedId, author_id: comment.author_id, author_name: req.session.username, author_avatar: me?.avatar_url || null,
+          text, created_at: comment.created_at, mine: true
+        }
       });
     } catch (e) {
       res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาด' });
