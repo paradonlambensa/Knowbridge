@@ -15,6 +15,13 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      # รูปโปรไฟล์ (Cloudinary) — ค่าจากหน้า Dashboard ของ Cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
 
   # การ์ดโปรไฟล์ (PHP 8.4 + Apache) — card-service/
   # ดึงโปรไฟล์สาธารณะจาก API ของเว็บหลัก แล้ววาดเป็นรูป SVG

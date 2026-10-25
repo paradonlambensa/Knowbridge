@@ -1,8 +1,11 @@
-require("dotenv").config();
-app.set("trust proxy", 1);
+const path = require("path");
+// โหลด .env ก่อน require อย่างอื่น — routes/profile.js อ่านค่า CLOUDINARY_* ตั้งแต่ตอนโหลดไฟล์
+require("dotenv").config({
+  path: path.join(__dirname, "..", ".env"),
+  quiet: true,
+});
 const express = require("express");
 const fs = require("fs/promises");
-const path = require("path");
 const session = require("express-session");
 const helmet = require("helmet");
 const { MongoStore } = require("connect-mongo");
@@ -40,10 +43,6 @@ const ROUTERS = [
 ].map((name) => require("./routes/" + name));
 const { createServer } = require("http");
 const { Server } = require("socket.io");
-require("dotenv").config({
-  path: path.join(__dirname, "..", ".env"),
-  quiet: true,
-});
 
 const app = express();
 const httpServer = createServer(app);
@@ -110,7 +109,13 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         connectSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", ...(CARD_ORIGIN ? [CARD_ORIGIN] : [])],
+        // res.cloudinary.com = รูปโปรไฟล์ที่ผู้ใช้อัปโหลด (routes/profile.js)
+        imgSrc: [
+          "'self'",
+          "data:",
+          "https://res.cloudinary.com",
+          ...(CARD_ORIGIN ? [CARD_ORIGIN] : []),
+        ],
         frameAncestors: ["'none'"],
         // ตอนรันในเครื่องเป็น http — ไม่บังคับเปลี่ยนเป็น https
         upgradeInsecureRequests: isProduction ? [] : null,
@@ -163,6 +168,8 @@ app.get(["/", "/index.html"], async (req, res, next) => {
   }
 });
 app.use(express.static(FRONTEND_DIR, { index: false }));
+// รูปที่เคยอัปโหลดลงเครื่องตอนพัฒนา (ตอนนี้รูปใหม่ไปอยู่ที่ Cloudinary)
+app.use("/uploads", express.static(path.join(FRONTEND_DIR, "uploads")));
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || "knowbridge-secret-2024",
   resave: false,
@@ -178,9 +185,9 @@ const sessionMiddleware = session({
   cookie: {
     maxAge: SESSION_TTL * 1000,
     httpOnly: true,
-    // *** สำคัญ: ต้องปรับแก้ส่วนนี้หากต้องการโฮสต์แยกโดเมน ***
-    // sameSite: "lax", // เปลี่ยนเป็น sameSite: process.env.NODE_ENV === "production" ? "none" : "lax"
-    // secure: "auto",  // เปลี่ยนเป็น secure: process.env.NODE_ENV === "production"
+    // หน้าเว็บกับ API อยู่โดเมนเดียวกัน (Express เสิร์ฟ frontend/ เอง) — ไม่ต้องใช้ sameSite: "none"
+    sameSite: "lax",
+    secure: "auto",
   },
 });
 app.use(sessionMiddleware);
@@ -268,19 +275,3 @@ setupSocket(routeDeps);
 httpServer.listen(PORT, () => {
   console.log(`🌉 KnowBridge running at http://localhost:${PORT}`);
 });
-app.use(
-  "/uploads",
-  express.static(path.join(__dirname, "../frontend/uploads")),
-);
-const cors = require("cors");
-// ... (บรรทัดอื่นๆ)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// เพิ่มการตั้งค่า CORS
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "https://your-frontend-domain.com", // ระบุโดเมนของคุณ
-    credentials: true, // อนุญาตให้รับส่ง Session Cookie
-  }),
-);

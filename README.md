@@ -260,6 +260,7 @@ MONGODB_DB=knowbridge_dev
 | `MAIL_FROM` | ❌ | `KnowBridge <onboarding@resend.dev>` | ผู้ส่งอีเมล — ต้องเป็นโดเมนที่ยืนยันใน Resend แล้ว |
 | `APP_URL` | ❌ | ดูจาก request | URL ของเว็บที่ใช้สร้างลิงก์ในอีเมลและการ์ดแชร์ลิงก์ เช่น `https://knowbridge.onrender.com` |
 | `CARD_SERVICE_URL` | ❌ | — | URL ของบริการการ์ด (PHP) เช่น `https://knowbridge-card.onrender.com` — ไม่ตั้ง = ซ่อนปุ่มการ์ดโปรไฟล์ |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | ❌ | — | ที่เก็บรูปโปรไฟล์ — ค่าจากหน้า Dashboard ของ [Cloudinary](https://cloudinary.com) (ดิสก์ของ Render แบบฟรีหายทุกครั้งที่ deploy จึงเก็บรูปในเครื่องไม่ได้) ไม่ตั้ง = อัปโหลดรูปโปรไฟล์ไม่ได้ ส่วนอื่นใช้ได้ปกติ |
 | `CONTACT_EMAIL` | ❌ | — | อีเมลติดต่อเรื่องข้อมูลส่วนบุคคล แสดงในหน้านโยบาย (ไม่ตั้ง = แสดงเป็น "ทีมผู้พัฒนาโครงงาน") |
 | `MONGODB_DB` | ❌ | `knowbridge` | ชื่อฐานข้อมูลใน cluster — **ตอนรันในเครื่องให้ตั้งเป็นชื่ออื่น** (เช่น `knowbridge_dev`) ถ้าใช้ cluster เดียวกับเว็บจริง จะได้ไม่ไปเขียนทับข้อมูลจริง |
 

@@ -158,6 +158,23 @@ async function run() {
     JSON.stringify(pC.skills.map(s => s.type + ':' + s.skill_name)));
   j0 = await json(post(C, '/api/profile/update', { teach_skills: skills.slice(0, 6).map(s => s._id) }));
   check('เลือกเกิน 5 ทักษะต่อประเภทไม่ได้', !j0.success && /5/.test(j0.error), j0.error);
+  // หน้าเว็บส่งแบบ FormData (มีรูปโปรไฟล์ได้) — ทักษะมาเป็น JSON string
+  const multipart = (form) => fetch(BASE + '/api/profile/update', { method: 'POST', headers: { Cookie: C.cookie }, body: form });
+  let form = new FormData();
+  form.append('bio', 'C จากฟอร์ม');
+  form.append('teach_skills', JSON.stringify([skillId('Piano')]));
+  form.append('learn_skills', JSON.stringify([skillId('Guitar')]));
+  j0 = await json(multipart(form));
+  const pC2 = await json(api(C, '/api/profile'));
+  check('บันทึกโปรไฟล์แบบ FormData (ทักษะเป็น JSON string) ได้',
+    j0.success && pC2.user.bio === 'C จากฟอร์ม' && pC2.skills.find(s => s.type === 'teach')?.skill_name === 'Piano',
+    JSON.stringify(j0));
+  form = new FormData();
+  form.append('bio', 'ไม่ควรถูกบันทึก');
+  form.append('avatar', new Blob(['not an image'], { type: 'text/plain' }), 'note.txt');
+  j0 = await json(multipart(form));
+  check('อัปโหลดไฟล์ที่ไม่ใช่รูปเป็นรูปโปรไฟล์ → บอกผู้ใช้ ไม่บันทึก',
+    !j0.success && /รูป/.test(j0.error) && (await json(api(C, '/api/profile'))).user.bio === 'C จากฟอร์ม', JSON.stringify(j0));
   await post(C, '/api/profile/update', { teach_skills: [], learn_skills: [] });
 
   // --- ค้นหา ---
@@ -798,9 +815,11 @@ async function run() {
       CARD_SERVICE_URL: 'http://127.0.0.1:4011/'
     });
     const home2 = await fetch(BASE + '/');
+    const imgSrc = ((home2.headers.get('content-security-policy') || '').match(/img-src ([^;]*)/) || [, ''])[1].split(' ');
     check('ตั้ง CARD_SERVICE_URL แล้ว: หน้าเว็บรู้ URL การ์ด และ CSP ยอมให้โหลดรูปจากบริการการ์ด',
       (await home2.text()).includes('name="kb-card-url" content="http://127.0.0.1:4011"') &&
-      (home2.headers.get('content-security-policy') || '').includes("img-src 'self' data: http://127.0.0.1:4011"));
+      imgSrc.includes('http://127.0.0.1:4011'));
+    check('CSP ยอมให้โหลดรูปโปรไฟล์จาก Cloudinary', imgSrc.includes('https://res.cloudinary.com'));
     let r = await post(A, '/api/account/verify-email/send', {});
     check('ส่งอีเมลไม่สำเร็จ (Resend ปฏิเสธ) → บอกผู้ใช้ตามจริง ไม่ขึ้นว่าส่งแล้ว',
       r.status === 502 && mailHits.some(m => m.to?.[0] === A.profile.user.email), `${r.status} hits=${mailHits.length}`);
